@@ -1,5 +1,11 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2005-03-31: Version 0.0.9
+- Dutch translation by Johan Schuring <vetteblei@gmail.com>
+- Fast transponder/satellite scan, thanks to the wonderful work of Thomas
+  Bergwinkl <bergwinkl.thomas@vr-web.de> who provided filter.[ch] to make it
+  possible
+
 2005-02-13: Version 0.0.8
 - Implement new (in vdr-1.3.20) method Stop
 - Removed the note about the dxr3 shutdown problem (saving the dish position

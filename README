@@ -83,11 +83,11 @@ to tune to (by pressing OK) and see what signal-strength you get there.
 When possible you should also see the new channel on screen.
 
 Scan Transponder: If you press OK on Scan Transponder, vdr
-will switch to the selected transponder and scan for new/updated channels
-for about 10 seconds (in fact it will simply enable vdr channel update for
-10 seconds). During this time a message and a progress bar is shown, and
-pressing any key will interrupt the scanning.
-
+will switch to the selected transponder and scan for new/updated channels.
+During this operation a message and a progress bar is shown, and
+pressing any key will interrupt the scanning. The header of the screen will
+show the total number of channels found and the number of new ones.
+ 
 
 SATELLITE SCANNING
 
@@ -98,11 +98,12 @@ the index of the transponder from where the scanning will start (so that you
 can make a partial scan) and the total number of the transponders found in
 the file. If you press left or right you can select a different transponder
 and its data will be shown in the Frequency and Symbolrate fields. If you
-press OK all transponders, starting from the selected index, will be tuned
-to for about 10 seconds to give vdr time to automatically update the
-channels. A message and a progress bar will be shown, and pressing any key
+press OK all transponders, starting from the selected index, will be
+scanned. A message and a progress bar will be shown, and pressing any key
 will stop the operation, leaving the index at the current position so you
-can resume scanning later on.
+can resume scanning later on. The header of the screen will show the total
+number of channels found and the number of new ones.
+
 The name of the transponder file for a satellite is XXXX.ini, where XXXX
 represents the satellite position in tenths of degree, eg. for 
 28.2E the filename will be 0282.ini, for 30.0W the filename will be 3300.ini

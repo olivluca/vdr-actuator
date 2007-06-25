@@ -1,0 +1,83 @@
+--- channels.c.newchannels	2005-02-06 10:44:53.000000000 +0100
++++ channels.c	2005-02-13 16:48:07.825253533 +0100
+@@ -536,6 +536,11 @@
+   refChannel = RefChannel;
+ }
+ 
++void cChannel::SetGroupSep(bool Sep)
++{
++   groupSep = Sep;
++}
++
+ static int PrintParameter(char *p, char Name, int Value)
+ {
+   return Value >= 0 && Value != 999 ? sprintf(p, "%c%d", Name, Value) : 0;
+@@ -909,6 +914,16 @@
+   return NULL;
+ }
+ 
++cChannel *cChannels::GetByName(char *Name)
++{
++  for (cChannel *channel = First(); channel; channel = Next(channel))
++  {
++      if (strcmp(channel->Name(), Name)==0)
++         return channel;
++  }
++  return NULL;
++}
++
+ bool cChannels::HasUniqueChannelID(cChannel *NewChannel, cChannel *OldChannel)
+ {
+   tChannelID NewChannelID = NewChannel->GetChannelID();
+@@ -944,7 +959,33 @@
+      cChannel *NewChannel = new cChannel(*Transponder);
+      NewChannel->SetId(Nid, Tid, Sid, Rid);
+      NewChannel->SetName(Name, ShortName, Provider);
++#if 0
+      Add(NewChannel);
++#else
++     /* find group separator for the source of this channel */
++     {
++         char buffer[64];
++         snprintf(buffer, sizeof(buffer), "New Channels @ %s",
++         *cSource::ToString(NewChannel->Source()) );
++         cChannel *groupSep = GetByName(buffer);
++         if(!groupSep) // group separator for this source doesn't exist, so lets create it
++         {
++             groupSep = new cChannel();
++             groupSep->SetName(buffer, "", "");
++             groupSep->SetGroupSep(true);
++             Add(groupSep);
++         } else  // find next separator or last channel 
++         {
++             cChannel *nextChannel=Next(groupSep);
++             while (nextChannel &&  !nextChannel->GroupSep())
++             {
++                groupSep=nextChannel;
++                nextChannel=Next(nextChannel);
++             }
++         }
++         Add(NewChannel, groupSep);
++     }
++#endif
+      ReNumber();
+      return NewChannel;
+      }
+--- channels.h.newchannels	2005-01-16 14:46:41.000000000 +0100
++++ channels.h	2005-02-13 16:45:39.327608385 +0100
+@@ -191,6 +191,7 @@
+   void SetCaDescriptors(int Level);
+   void SetLinkChannels(cLinkChannels *LinkChannels);
+   void SetRefChannel(cChannel *RefChannel);
++  void SetGroupSep(bool Sep = true);
+   };
+ 
+ class cChannels : public cRwLock, public cConfig<cChannel> {
+@@ -208,6 +209,7 @@
+   cChannel *GetByNumber(int Number, int SkipGap = 0);
+   cChannel *GetByServiceID(int Source, int Transponder, unsigned short ServiceID);
+   cChannel *GetByChannelID(tChannelID ChannelID, bool TryWithoutRid = false, bool TryWithoutPolarization = false);
++  cChannel *GetByName(char *Name);
+   int BeingEdited(void) { return beingEdited; }
+   void IncBeingEdited(void) { beingEdited++; }
+   void DecBeingEdited(void) { beingEdited--; }

@@ -21,11 +21,13 @@
 #include <vdr/osd.h>
 #include <vdr/pat.h>
 #include <math.h>
+#include "filter.h"
 #include "i18n.h"
 #include "module/actuator.h"
+
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.8";
+static const char *VERSION        = "0.0.9";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -98,6 +100,7 @@ static const int menudigits[] = {
 
 //Dish messages
 #define dishmoving    "Dish target: %d, position: %d"
+#define channelsfound "Channels found: %d, new: %d"
 #define dishreached   "Position reached"
 #define dishwait      "Motor wait"
 #define disherror     "Motor error"
@@ -602,19 +605,24 @@ private:
   uint32_t fe_unc;
   cTimeMs *scantime;
   cTimeMs *refresh;
+  SdtFilter *SFilter;
+  PatFilter *PFilter;
   enum sm {
     SM_NONE,
     SM_TRANSPONDER,
     SM_SATELLITE
     } scanmode;
+  bool showScanResult;  
+  void DisplaySignalInfoOnOsd(void);
+  void GetSignalInfo(void);
+  void Tune(bool live=true);
+  void StartScan(bool live=true);
+  void StopScan(void);
 public:
   cMainMenuActuator(void);
   ~cMainMenuActuator();
   virtual void Show(void);
   virtual eOSState ProcessKey(eKeys Key);
-  void DisplaySignalInfoOnOsd(void);
-  void GetSignalInfo(void);
-  void Tune(bool live=true);
 };
 
 
@@ -667,6 +675,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   else
     textfont = cFont::GetFont(fontSml);
   scanmode=SM_NONE;
+  showScanResult=false;
   scantime=new cTimeMs();
   refresh=new cTimeMs();
   refresh->Set(-MinRefresh);
@@ -727,12 +736,17 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   if (Key!=kNone) refresh->Set(-MinRefresh);
   
   //-------------------------------------------
+  // Hide scan result
+  //-------------------------------------------
+  if(Key!=kNone && scanmode==SM_NONE) showScanResult=false;
+  
+  //-------------------------------------------
   //Scanning transponder
   //-------------------------------------------
   if(scanmode==SM_TRANSPONDER) {
-      if (Key!=kNone || scantime->Elapsed()>=10000) {
+      if (Key!=kNone || scantime->Elapsed()>=10000 || PFilter->EndOfScan()) {
         scanmode=SM_NONE;
-        Setup.UpdateChannels=0;
+        StopScan();
       }
       Show();
       return state;
@@ -748,7 +762,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
         GetSignalInfo();
         haslock=fe_status & FE_HAS_LOCK;
       }     
-      if (!haslock || scantime->Elapsed()>=10000) {
+      if (!haslock || scantime->Elapsed()>=10000 || PFilter->EndOfScan()) {
+        StopScan();
         curtransponder=Transponders->Next(curtransponder);
         if(curtransponder) {
           transponderindex++;
@@ -757,17 +772,16 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
           menuvalue[MI_VPID]=0;  //FIXME
           menuvalue[MI_APID]=0;  //FIXME
           Pol=curtransponder->Polarization();
-          Tune(false);
+          StartScan(false);
           scantime->Set();
         } else {
           scanmode=SM_NONE;
           transponderindex=1;
-          Setup.UpdateChannels=0;
         }
       }
-      if (Key!=kNone) {
+      if (Key!=kNone && scanmode!=SM_NONE) {
+        StopScan();
         scanmode=SM_NONE;
-        Setup.UpdateChannels=0;
       }
       Show();
       return state;     
@@ -1001,10 +1015,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    }     
                    if (conf==0) conf=1;
                    else {
-                     Tune(); 
-                     Setup.UpdateChannels=4;
                      scanmode=SM_TRANSPONDER;
-                     scantime->Set();
+                     StartScan();
                      conf=0;
                    }
                    break;
@@ -1022,9 +1034,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                        menuvalue[MI_APID]=0;  //FIXME
                        Pol=curtransponder->Polarization();
                        scanmode=SM_SATELLITE;
-                       Tune(); 
-                       Setup.UpdateChannels=4;
-                       scantime->Set();
+                       StartScan();
                        conf=0;
                      }
                    }  
@@ -1117,7 +1127,8 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
              text=clrWhite;
              break;
           default:
-             snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
+             if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
+             else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
              background=clrWhite;
              text=clrBlack;
          }      
@@ -1316,6 +1327,30 @@ void cMainMenuActuator::Tune(bool live)
       cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
 }
 
+
+void cMainMenuActuator::StartScan(bool live)
+{
+      printf("**** Scanning %d%c\n",menuvalue[MI_FREQUENCY], Pol);
+      showScanResult=true;
+      Tune(live);
+      scantime->Set();
+      PFilter=new PatFilter();
+      SFilter=new SdtFilter(PFilter);
+      if (live) SdtFilter::ResetFound();
+      PFilter->SetSdtFilter(SFilter);
+      cDevice::GetDevice(DvbKarte)->AttachFilter(SFilter);
+      cDevice::GetDevice(DvbKarte)->AttachFilter(PFilter);
+  
+}
+
+void cMainMenuActuator::StopScan(void)
+{
+     printf("     Scanned in %lld ms, found %d channels (new %d)\n", scantime->Elapsed(), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
+     cDevice::GetDevice(DvbKarte)->Detach(PFilter);
+     cDevice::GetDevice(DvbKarte)->Detach(SFilter);
+     delete PFilter;
+     delete SFilter;
+}
 
 // --- cPluginActuator ---------------------------------------------------------
 

@@ -14,4 +14,9 @@ vdr-1.3.18-sort-by-source.diff
   2) to sort channels by source (i.e. pressing 0 will switch between
      number->name->provider->source+number->source+name->source+provider,
      an asterisk in each entry will show that the list is sorted by source)
-     
+     README
+
+vdr-1.3.21-Source-dependant-NewChannels-Insertation.diff
+  Apply this patch if you want new channels added depending on the satellite
+  (if a section "New channels @ xx" already exists, new channels will be put
+  there, otherwise a section with the current position will be created). 
