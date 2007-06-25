@@ -62,6 +62,7 @@ enum direction {
      
 static unsigned int base = 0x378;
 module_param(base, int, 0);
+MODULE_PARM_DESC(base,"I/O address of the parallel port to use (defaults to 0x378)");
 
 int major;
 

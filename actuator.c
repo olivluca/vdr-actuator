@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.4";
+static const char *VERSION        = "0.0.5";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -982,7 +982,7 @@ void cMainMenuActuator::Tune(void)
       char tmp2[1][4]={"eng"}; //dummy
       int tmp3=0; //dummy
       SChannel->SetPids(OldChannel->Vpid(),OldChannel->Ppid(),&tmp[0],tmp2,&tmp3,tmp2,0);
-      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO,false);
+      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
       if (cDevice::GetDevice(DvbKarte)==cDevice::ActualDevice()) HasSwitched=true;
       cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
 }

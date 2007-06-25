@@ -1,5 +1,9 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2004-10-18: Version 0.0.5
+- Kernel module: added parameter description
+- Fixed compilation error for vdr 1.3.13
+
 2004-08-30: Version 0.0.4
 - Kernel module: corrected and revised use of lock (now an rwlock) to
   use the irqsave/irqrestore version in non interrupt code (doh!). 
