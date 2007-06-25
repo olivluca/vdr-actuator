@@ -1,0 +1,403 @@
+/*
+ * actuator.c -- control a linear actuator through the parallel
+ * port.
+ *
+ * D0 (pin 2) is used as a "rotate west" output
+ * D1 (pin 3) is "rotate east"
+ * both have to be connected to a driver and a relay
+ *
+ * Ack input (pin 10) is connected to the reed switch in the
+ * actuator for position control. It has do be connected through
+ * a debouncing circuit
+ *
+ * Some code taken from the lirc_parallel driver
+ *
+ ******************************************************************************
+ *
+ * Copyright (C) 2004 Luca Olivetti <luca@olivetti.cjb.net>
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
+#include <linux/sched.h>
+#include <linux/devfs_fs_kernel.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/errno.h>
+#include <linux/delay.h>
+#include <linux/mm.h>
+#include <linux/parport.h>
+#include <linux/interrupt.h>
+#include <linux/ioctl.h>
+#include <asm/uaccess.h>
+#include "actuator.h"
+
+#define DRIVER_NAME "actuator"
+
+/* direction */
+enum direction {
+     MD_STOP=0,
+     MD_WEST,
+     MD_EAST
+     };
+     
+static unsigned int base = 0x378;
+module_param(base, int, 0);
+
+int major;
+
+struct parport *pport;
+struct pardevice *ppdevice;
+
+/* timer, used as a delay for position reached/direction changed */
+
+static struct timer_list timer;
+static int stopping;
+#if TESTSIGNAL
+/* generates a signal on pin 4 for testing with no real hardware 
+   (connect pin 4 to pin 10) */
+static struct timer_list testsignalt;
+static int testsignal;
+#endif
+
+static spinlock_t lock;
+static struct actuator_status status;
+static unsigned char lastdirection;
+static unsigned int nextstate;
+
+static void set_timer(void)
+{
+  if (timer_pending(&timer)) mod_timer(&timer, jiffies+HZ*2); 
+  else {
+    timer.expires = jiffies+HZ*2;
+    add_timer(&timer);
+  }
+}
+
+static void motor_go(unsigned char direction)
+{
+  parport_write_data(pport,direction);
+  if (direction != MD_STOP) {
+    lastdirection = direction;
+    if (direction == MD_WEST) status.state = ACM_WEST; else status.state = ACM_EAST;
+    set_timer();
+  }  
+}
+
+static void set_mode(unsigned int newmode, unsigned int newtarget)
+{
+  status.mode=newmode;
+  switch(status.mode)
+  {
+  case AC_STOP:
+      motor_go(MD_STOP);
+      nextstate=ACM_IDLE;
+      status.state=ACM_STOPPED;
+      set_timer();
+      return;
+      
+  case AC_AUTO:
+      status.target=newtarget;
+      if (status.target>status.position) nextstate=ACM_WEST;
+      else if (status.target<status.position) nextstate=ACM_EAST;
+      else nextstate=ACM_REACHED;
+      break;
+      
+  case AC_MANUAL_WEST:
+      nextstate=ACM_WEST;
+      break;
+      
+  case AC_MANUAL_EAST:
+      nextstate=ACM_EAST;  
+  }
+  
+  if ((status.state==ACM_EAST && nextstate==ACM_WEST) || (status.state==ACM_WEST && nextstate==ACM_EAST))
+  {
+    motor_go(MD_STOP);
+    status.state=ACM_CHANGE;
+    set_timer();
+  }
+  else if (status.state==ACM_IDLE)
+  {
+    status.state=nextstate;
+    nextstate=ACM_IDLE;
+    if (status.state==ACM_EAST) motor_go(MD_EAST);
+    else if (status.state==ACM_WEST) motor_go(MD_WEST);
+    else motor_go(MD_STOP);
+    if (status.state==ACM_REACHED) set_timer();
+  }
+}
+
+static void actuator_timer (unsigned long cookie)
+{
+  spin_lock(&lock);
+  if (stopping) {
+    spin_unlock(&lock);
+    return;
+  }  
+  switch (status.state) {
+    case ACM_WEST:
+    case ACM_EAST:
+      parport_write_data(pport,MD_STOP);
+      status.state = ACM_ERROR;
+      lastdirection = MD_STOP; //avoid spurious pulses
+      set_timer();
+      break;
+    case ACM_ERROR:
+      status.state=ACM_IDLE;
+      break;
+    case ACM_REACHED:
+    case ACM_STOPPED:
+    case ACM_CHANGE:
+      status.state=nextstate;
+      nextstate=ACM_IDLE;
+      lastdirection=MD_STOP; //if needed motor_go will change it
+      if (status.state==ACM_EAST) motor_go(MD_EAST);
+      else if (status.state==ACM_WEST) motor_go(MD_WEST);
+      break;
+  }        
+  spin_unlock(&lock);
+}  
+
+#if TESTSIGNAL
+static void testsignal_timer (unsigned long cookie)
+{
+  spin_lock(&lock);
+  if (stopping) {
+    spin_unlock(&lock);
+    return;
+  }  
+  if (status.state == ACM_WEST || status.state == ACM_EAST) {
+    parport_write_data(pport,testsignal);
+    testsignal=4-testsignal;
+  }  
+  testsignalt.expires=jiffies+HZ/10;
+  add_timer(&testsignalt);
+  spin_unlock(&lock);
+}
+#endif
+
+/*
+ *  Open device
+ */
+
+int actuator_open (struct inode *inode, struct file *filp)
+{
+    try_module_get(THIS_MODULE);
+    return 0;
+}
+
+
+int actuator_release (struct inode *inode, struct file *filp)
+{
+    module_put(THIS_MODULE);
+    return 0;
+}
+
+static int actuator_ioctl(struct inode *node, struct file *filep, unsigned int cmd,
+                          unsigned long arg)
+{
+    int result;
+    unsigned int new;
+    
+    switch(cmd)
+    {
+    case AC_RSTATUS:
+        if (copy_to_user((void *)arg, &status, sizeof(status))) return -EFAULT;
+        return 0;
+        break;
+
+    case AC_WPOS:
+        spin_lock(&lock);
+        set_mode(AC_STOP,0);
+        result=get_user(status.position, (unsigned int *) arg);
+        spin_unlock(&lock);
+        if(result) return result;
+        break;
+
+    case AC_WTARGET:
+        result=get_user(new, (unsigned int *) arg);
+        if(result) return result;
+        spin_lock(&lock);
+        set_mode(AC_AUTO, new);
+        spin_unlock(&lock);
+        break;
+
+    case AC_MSTOP:
+        spin_lock(&lock);
+        set_mode(AC_STOP, 0);
+        spin_unlock(&lock);
+        break;
+        
+    case AC_MWEST:
+        spin_lock(&lock);
+        set_mode(AC_MANUAL_WEST, 0);
+        spin_unlock(&lock);
+        break;
+        
+    case AC_MEAST:
+        spin_lock(&lock);
+        set_mode(AC_MANUAL_EAST, 0);
+        spin_unlock(&lock);
+        break;
+    
+    }
+    return(0);
+}
+
+struct file_operations actuator_fops = {
+    open: actuator_open,
+    release: actuator_release,
+    ioctl: actuator_ioctl,
+};
+
+void actuator_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+	spin_lock(&lock);
+	if (stopping) {
+	  spin_unlock(&lock);
+	  return;
+	}  
+	if (lastdirection == MD_WEST) status.position++;
+	else if (lastdirection == MD_EAST) status.position--;
+	
+	if (status.state == ACM_WEST || status.state == ACM_EAST) {
+	  if (((status.state == ACM_WEST && status.position >= status.target) || 
+	       (status.state == ACM_EAST && status.position <= status.target)) && status.mode == AC_AUTO) {
+            status.state = ACM_REACHED;
+            motor_go(MD_STOP); /* stop the motor */
+          }  
+          set_timer();
+	  }
+ 
+        spin_unlock(&lock);
+
+}
+
+                         
+/* Finally, init and cleanup */
+
+
+int actuator_init(void)
+{
+    int i=0;
+
+    
+    while((pport=parport_find_number(i++))!=NULL)
+    {
+      if(pport->base==base)
+		break;
+    }
+    if(pport==NULL)
+    {
+      printk(KERN_NOTICE "%s : no port at 0x%x found\n", DRIVER_NAME, base);
+      return(-ENXIO);
+    }
+    
+    if(pport->irq==-1)
+    {
+      printk(KERN_NOTICE "%s : port at 0x%x without interrupt\n", DRIVER_NAME, base);
+      return(-ENXIO);
+    } 
+    
+    ppdevice=parport_register_device(pport,DRIVER_NAME,
+                                     NULL, /* no preempt */
+                                     NULL, /* no wakeup */
+                                     actuator_interrupt,PARPORT_DEV_EXCL,NULL);
+    if(ppdevice==NULL)
+    {
+      printk(KERN_NOTICE "%s: parport_register_device() failed\n",
+             DRIVER_NAME);
+      return(-ENXIO);
+    }
+    
+    if(parport_claim(ppdevice)!=0)
+    {
+      printk(KERN_WARNING "%s: could not claim port\n", DRIVER_NAME);
+      parport_unregister_device(ppdevice);
+      return(-ENXIO);
+     } 
+
+     major = register_chrdev(0, DRIVER_NAME, &actuator_fops);
+     if (major<0)
+     {
+       printk(KERN_WARNING "%s: can't get major\n", DRIVER_NAME);
+       parport_release(ppdevice);
+       parport_unregister_device(ppdevice);
+       return major;
+     }
+     
+     devfs_mk_cdev(MKDEV(major, 0), S_IFCHR | S_IRUSR | S_IWUSR, DRIVER_NAME);
+
+
+    /* set up timer function */
+    init_timer(&timer);
+    timer.function=actuator_timer;
+    
+    /* set up spinlock */
+    spin_lock_init(&lock);
+
+    stopping = 0;
+    
+#if TESTSIGNAL
+    init_timer(&testsignalt);
+    testsignalt.function=testsignal_timer;
+    testsignal = 0;
+    testsignalt.expires=jiffies+HZ/10;
+    add_timer(&testsignalt);
+#endif        
+    
+    /* enable interrupt */
+    pport->ops->enable_irq(pport);
+    return 0;
+}
+
+void actuator_cleanup(void)
+{
+     
+    if(module_refcount(THIS_MODULE)) return;
+
+    spin_lock(&lock);
+    stopping = 1; /* prevents the timer from rescheduling and the interrupt from running */
+    spin_unlock(&lock);
+
+    del_timer_sync(&timer);
+#if TESTSIGNAL
+    del_timer_sync(&testsignalt);
+#endif        
+    
+    parport_write_data(pport,0x00); /* disable outputs */
+    
+    devfs_remove(DRIVER_NAME);
+    unregister_chrdev(major, DRIVER_NAME); 
+
+    /* release the parallel port */
+    pport->ops->disable_irq(pport);   /* disable the interrupt */
+    parport_release(ppdevice);
+    parport_unregister_device(ppdevice);
+    
+}
+
+MODULE_AUTHOR("Luca Olivetti");
+MODULE_DESCRIPTION("Control a linear actuator through the parallel port");
+MODULE_LICENSE("GPL");
+
+module_init(actuator_init);
+module_exit(actuator_cleanup);
+

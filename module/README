@@ -1,0 +1,27 @@
+This module controls a linear actuator through the parallel
+port.
+
+D0 (pin 2) is used as a "rotate west" output
+D1 (pin 3) is "rotate east"
+both have to be connected to a driver and a relay
+
+Ack input (pin 10) is connected to the reed switch in the
+actuator for position control. It has do be connected through
+a debouncing circuit
+
+I'm not a kernel expert, so this module is probably bug ridden.
+I also didn't care for backwards compatibility: the module only builds under
+kernel 2.6.
+It should be possible to build the module by simply typing "make", provided
+you have the kernel source for the currently running kernel *and*
+/lib/modules/$(uname -r)/build points to the source tree (this is the case
+with Mandrake once you installed the kernel-source package matching the
+currently running kernel, other distributions should do the same).
+Since the module uses the parallel port interrupt to count pulses, be sure
+that you give the correct parameters to the parport_pc module since the
+default is to use no interrupt, e.g.:
+
+modprobe parport_pc io=0x378 irq=7
+
+If you don't do so, when you load this module it will complain that it
+didn't find an interrupt for the port (look at dmesg output).

@@ -1,0 +1,93 @@
+This is a "plugin" for the Video Disk Recorder (VDR).
+
+Written by:                  Luca Olivetti <luca@olivetti.cjb.net>
+Pieces of code and inspiration taken from the rotor plugin by  
+Thomas Bergwinkl <Thomas.Bergwinkl@t-online.de>
+
+
+See the file COPYING for license information.
+
+Description:
+THIS PLUGINS NEEDS vdr >= 1.3.7
+With this plugin you can control a linear or an horizon to horizon actuator
+controlled through the parallel port.
+This kind of actuator usually needs a 36V supply (I drive mine at 12V to
+reduce noise) and has a reed relay that gives pulses while the motor is 
+running. By counting the pulses you can know the position of the actuator
+(and the position of the dish).
+You have to build a simple circuit to interface the parallel port to the
+actuator. The circuit I used is in the file actuator.sch (made with
+geda-gschem, see http://www.geda.seul.org, a png rendering is in
+actuator.png) in the "module" subdirectory.
+You also have to build and load a kernel module (2.6.x kernel needed), look
+in the "module" subdirectory for details.
+
+In the setup-menu of the plugin you have to select the dvb card which is
+connected to the dish driven by the actuator. 
+
+In the plugin-menu you see on the top the signal strength of the currently
+tuned channel. You also see the dish target and the dish position.
+The position increments going west and decrement going east (you have to
+connect the motor accordingly!).
+The soft East Limit is always 0. 
+
+The onscreen buttons are:
+
+Drive East      : moves the dish east.
+Halt	    	: stops any movement of the motor.
+Drive West 	: moves the dish west.
+Recalc 		: sets the position of the dish to the position of the
+                  currently selected satellite (source).
+Goto xx    	: actuator goes to position xx.
+Store    	: the current position will be stored to the current
+		  satellite (source).
+XX Steps East	: dish moves XX steps eastwards.
+Enable/Disable
+Limits          : enables/disables the soft limits. Note that the limits
+                  will be automatically enabled when you leave the menu.
+XX Steps West	: dish moves XX steps westwards.
+Set East Limit  : sets the position of the dish at 0 and recalculates all
+                  stored positions.
+Set Zero        : sets the position of the dish but won't recalculate stored
+                  positions.
+Set West Limit  : stores the current position as the west soft limit.
+
+
+You can select and move to a different satellite.
+
+Frequency & Symbolrate: Here you can select a frequency, polarization (by
+pressing left/right) and symbolrate you want to tune to (by pressing OK)
+and see what signal-strength you get there. To this transponder will also
+be tuned to, after commands like store, goto , drive east, ...
+
+Scan Transponder: If you press OK on Scan Transponder, vdr
+will switch to the selected transponder and scan for new/updated channels.
+
+If you want to see an indication of the position of the dish when switching
+channels, you have to apply the patch provided in the patches subdirectory. 
+Without this patch the plugin should work but you won't have any indication
+of the dish moving unless yoo select the plugin menu.
+
+
+KNOWN PROBLEMS:
+
+- The plugin will load the current dish position at start-up and stores it
+on disk each time it detects it has changed. It's possible to lose the
+actual position if the pc crashes while the dish is moving. In this case you
+have to manually point the dish at a known satellite (it may be necessary to
+disable the limits). I'd like to store the position in the cmos ram (in the
+kernel module) but I don't know where I can find a couple of free bytes (and
+if the pc crashes while storing the position, it may not have updated the
+cmos ram checksum).
+
+- When the pc is turned on or off my parallel port sets all data lines at 1,
+driving both relays for a very short while. Due to the wiring of the relays
+the motor should not move anyway. If you don't like it you can modify the
+circuit to add some more logic to avoid the problem.
+
+- vdr assumes that, as soon as a channel has been switched to the new source
+(satellite) is valid, even if the dish is moving, so the autoupdate function
+will pick up channels of the wrong satellite. There's a workaround in the
+plugin but it could change the setting of the autoupdate. If you see that
+channels aren't updating anymore check this setting
+(main menu->configuration->dbv->update channels).
