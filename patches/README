@@ -5,7 +5,8 @@ vdr-1.3.20-position-display.diff
 vdr-1.3.18-steerable.diff
   Apply this patch to avoid waiting for a lock after switching channel since
   it doesn't work well if the new channel is on a different satellite (see
-  the main README file)
+  the main README file). If your vdr is >= 1.3.32 use
+vdr-1.3.32-steerable.diff instead
 
 vdr-1.3.18-sort-by-source.diff
   Apply this patch if you want:

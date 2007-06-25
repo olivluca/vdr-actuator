@@ -368,8 +368,8 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
         int Ppid = pmt.getPCRPid();
         int Apids[MAXAPIDS + 1] = { 0 };
         int Dpids[MAXDPIDS + 1] = { 0 };
-        char ALangs[MAXAPIDS + 1][4] = { "" };
-        char DLangs[MAXDPIDS + 1][4] = { "" };
+        char ALangs[MAXAPIDS + 1][MAXLANGCODE2] = { "" };
+        char DLangs[MAXDPIDS + 1][MAXLANGCODE2] = { "" };
         int Tpid = 0;
         int NumApids = 0;
         int NumDpids = 0;
@@ -390,8 +390,8 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                                case SI::ISO639LanguageDescriptorTag: {
                                     SI::ISO639LanguageDescriptor *ld = (SI::ISO639LanguageDescriptor *)d;
                                     if (*ld->languageCode != '-') { // some use "---" to indicate "none"
-                                       strn0cpy(ALangs[NumApids], I18nNormalizeLanguageCode(ld->languageCode), 4);
-                                       ALangs[NumApids][4] = 0;
+                                       strn0cpy(ALangs[NumApids], I18nNormalizeLanguageCode(ld->languageCode), MAXLANGCODE2);
+                                       ALangs[NumApids][MAXLANGCODE2] = 0;
                                        }
                                     }
                                     break;
@@ -430,7 +430,7 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                       if (dpid) {
                          if (NumDpids < MAXDPIDS) {
                             Dpids[NumDpids] = dpid;
-                            strn0cpy(DLangs[NumDpids], lang, 4);
+                            strn0cpy(DLangs[NumDpids], lang, MAXLANGCODE2);
                             NumDpids++;
                             }
                          }

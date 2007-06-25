@@ -1,5 +1,13 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2005-10-30: Version 1.0.1
+- Simplified cPosTracker (start the thread only when needed so get rid of
+  the cCondWait)
+- Avoid tracking if the target hasn't changed after switching channels
+- Added svdrp support for querying the positioner status
+- return osContinue to avoid auto closing by main vdr loop
+- use MAXLANGCODE2
+
 2005-08-07: Version 1.0.0
 - It's been working for a year, let's call it 1.0.0 ;-) 
 - Save channels after a transponder/satellite scan

@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.0";
+static const char *VERSION        = "1.0.1";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -242,11 +242,8 @@ class cPosTracker:private cThread {
 private:
   int LastPositionSaved;
   int fd_actuator;
-  bool stopit;
   bool restoreupdate;
   const char *positionfilename;
-  cCondVar *trackwait;
-  cMutex mutex;
   int update;
   int target;
   cMutex updatemutex;
@@ -265,10 +262,8 @@ cPosTracker::cPosTracker(void):cThread("Position Tracker")
 {
   fd_actuator = open("/dev/actuator",0);
   positionfilename=strdup(AddDirectory(cPlugin::ConfigDirectory(), "actuator.pos"));
-  stopit=false;
   restoreupdate=true;
   update=-1;
-  trackwait=new cCondVar();
   if (fd_actuator) {
     actuator_status status;
     CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
@@ -289,7 +284,6 @@ cPosTracker::cPosTracker(void):cThread("Position Tracker")
       LastPositionSaved=status.position+1; //force a save
       SavePos(status.position);
     }  
-    Start();
   } else { //it should never take this branch
     esyslog("PosTracker cannot open /dev/actuator: %s", strerror(errno));
     exit(1);
@@ -307,9 +301,14 @@ cPosTracker::~cPosTracker(void)
   }  
   updatemutex.Unlock();
   if (fd_actuator) {
-    stopit=true;
-    trackwait->Broadcast();
-    Cancel(5);
+    Cancel(3);
+    CHECK(ioctl(fd_actuator, AC_MSTOP));
+    sleep(1);
+    actuator_status status;
+    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    SavePos(status.position);
+    close(fd_actuator);
+    printf("actuator: saved dish position\n");
   }
 }
 
@@ -334,7 +333,7 @@ void cPosTracker::Track(int NewTarget)
   }  
   Setup.UpdateChannels=0;
   updatemutex.Unlock();
-  if (fd_actuator) trackwait->Broadcast();
+  if (fd_actuator) Start();
 }
 
 void cPosTracker::SaveUpdate(void)
@@ -360,36 +359,22 @@ void cPosTracker::RestoreUpdate(void)
 void cPosTracker::Action(void)
 {
   actuator_status status;
-  while(true) {
-    cMutexLock MutexLock(&mutex);
-    trackwait->Wait(mutex);
-    if (stopit) {
-      CHECK(ioctl(fd_actuator, AC_MSTOP));
-      sleep(1);
-      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-      SavePos(status.position);
-      close(fd_actuator);
-      printf("actuator: saved dish position\n");
-      return; 
-    }
-    while (true) {
-      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-      SavePos(status.position);
-      if (status.state==ACM_IDLE) {
-        updatemutex.Lock();
-        if (update!=-1 and target!=-1 and abs(status.position-target)<POSTOLERANCE) {
-          Setup.UpdateChannels=update;
-          update=-1;
-          target=-1;
-        }
-        updatemutex.Unlock();
-        break;
-      }  
-      usleep(50000);
-    }
+  while(Running()) {
+    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    SavePos(status.position);
+    if (status.state==ACM_IDLE) {
+      updatemutex.Lock();
+      if (update!=-1 and target!=-1 and abs(status.position-target)<POSTOLERANCE) {
+        Setup.UpdateChannels=update;
+        update=-1;
+        target=-1;
+      }
+      updatemutex.Unlock();
+      return;
+    }  
+    usleep(50000);
   }  
 }
-
 
 cPosTracker *PosTracker;
 
@@ -448,14 +433,17 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
             if (status.position!=target || status.target!=target)  {
               //dsyslog("Satellite changed");
               CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
+              PosTracker->Track(target);
             }  
           } else {
             Skins.Message(mtError, tr(outsidelimits));
             target=-1;
           }  
         } else Skins.Message(mtError, tr(dishnopos));
-        if (target==-1) CHECK(ioctl(fd_actuator,AC_MSTOP));
-        if (PosTracker) PosTracker->Track(target);
+        if (target==-1) { 
+          CHECK(ioctl(fd_actuator,AC_MSTOP));
+          PosTracker->Track(target);
+        }  
       }  
     }
     //here we remember if the primary device is already in transfer mode
@@ -799,7 +787,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 {
   int selected=Selected();
   int newpos;
-  eOSState state = cOsdObject::ProcessKey(Key);
+  eOSState state = osContinue;
   actuator_status status;
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   if ((status.position<=0 && status.state==ACM_EAST || 
@@ -808,7 +796,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     errormessage=EM_ATLIMITS;
   }
   //needsFastResponse=(status.state != ACM_IDLE);
-  if (state == osUnknown) {
   int oldcolumn,oldline;
   oldcolumn=menucolumn;
   oldline=menuline;
@@ -1192,7 +1179,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   if ((oldcolumn!=menucolumn) || (menuline!=oldline)) {
     digits=0;
     conf=0;
-   }
   }
   Refresh();
   return state;
@@ -1444,8 +1430,8 @@ void cMainMenuActuator::Tune(bool live)
 {
       int Apids[MAXAPIDS + 1] = { 0 };
       int Dpids[MAXDPIDS + 1] = { 0 };
-      char ALangs[MAXAPIDS+1][4]={ "" };
-      char DLangs[MAXDPIDS+1][4]={ "" };
+      char ALangs[MAXAPIDS+1][MAXLANGCODE2]={ "" };
+      char DLangs[MAXDPIDS+1][MAXLANGCODE2]={ "" };
       Apids[0]=menuvalue[MI_APID];
       SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs,0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
@@ -1560,6 +1546,8 @@ public:
   virtual cOsdObject *MainMenuAction(void);
   virtual cMenuSetupPage *SetupMenu(void);
   virtual bool SetupParse(const char *Name, const char *Value);
+  virtual const char **SVDRPHelpPages(void);
+  virtual cString SVDRPCommand(const char *Command, const char *Option, int &ReplyCode);
 };
 
 cPluginActuator::cPluginActuator(void)
@@ -1648,5 +1636,36 @@ bool cPluginActuator::SetupParse(const char *Name, const char *Value)
   return true;
 }
 
+const char **cPluginActuator::SVDRPHelpPages(void)
+{
+  static const char *HelpPages[] = {
+    "STATUS\n"
+    "    Prints the current status of the positioner.",
+    NULL
+    };
+  return HelpPages;  
+}
+
+cString cPluginActuator::SVDRPCommand(const char *Command, const char *Option, int &ReplyCode)
+{
+  if (strcasecmp(Command, "STATUS") == 0) {
+    actuator_status status;
+    char buf[500];
+    const char *states[] = {
+     "IDLE",
+     "WEST",
+     "EAST",
+     "REACHED",
+     "STOPPED",
+     "CHANGE",
+     "ERROR"
+    }; 
+    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    snprintf(buf,sizeof(buf),"%d, %d, %d (%s)",status.target, status.position, status.state, (status.state >= ACM_IDLE && status.state <= ACM_ERROR) ? states[status.state] : "UNKWNOW"); 
+    return buf;
+  }
+  return NULL;
+}
+  
 VDRPLUGINCREATOR(cPluginActuator); // Don't touch this!
 
