@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.2";
+static const char *VERSION        = "1.0.3";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -122,10 +122,18 @@ static const int menudigits[] = {
 int DvbKarte=0;
 int WestLimit=0;
 unsigned int MinRefresh=250;
+int ShowChanges=1;
 //EastLimit is always 0
 
 //actuator device
 int fd_actuator;
+
+//for telling MainThreadHook it's time to show the position
+bool DishIsMoving=false;
+//main menu used only to show the position, not to interact with the actuator
+bool PositionDisplay=false;
+//delay to show the position
+cTimeMs PosDelay;
 
 //how to access SetupStore inside the main menu without this kludge?
 cPlugin *theplugin;
@@ -332,8 +340,9 @@ void cPosTracker::Track(int NewTarget)
     if (update==-1) update=Setup.UpdateChannels;
   }  
   Setup.UpdateChannels=0;
+
   updatemutex.Unlock();
-  if (fd_actuator) Start();
+  if (fd_actuator) Start(); 
 }
 
 void cPosTracker::SaveUpdate(void)
@@ -370,8 +379,9 @@ void cPosTracker::Action(void)
         target=-1;
       }
       updatemutex.Unlock();
+      DishIsMoving=false;
       return;
-    }  
+    } else if (status.state==ACM_WEST || status.state==ACM_EAST) DishIsMoving=true;  
     usleep(50000);
   }  
 }
@@ -387,7 +397,6 @@ private:
   bool transfer;
 protected:
   virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber);
-  virtual bool AlterDisplayChannel(cSkinDisplayChannel *displayChannel);
 public:
   cStatusMonitor();
 };
@@ -433,8 +442,8 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
             if (status.position!=target || status.target!=target)  {
               //dsyslog("Satellite changed");
               CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
-              PosTracker->Track(target);
             }  
+            PosTracker->Track(target);
           } else {
             Skins.Message(mtError, tr(outsidelimits));
             target=-1;
@@ -452,52 +461,13 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
   }
 }
 
-bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
-{
-  actuator_status status;
-  char *buf=NULL;
-
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  
-  bool showit=((last_state_shown != status.state) || (last_position_shown != status.position));
-  last_state_shown=status.state;
-  last_position_shown=status.position;
-   
-  switch(status.state) {
-      case ACM_IDLE: 
-        return false; 
-        
-      case ACM_WEST:
-      case ACM_EAST:
-        if (showit) {
-          asprintf(&buf,tr(dishmoving),status.target, status.position);
-          displayChannel->SetMessage(mtInfo,buf);
-          }
-        return true;
-        
-      case ACM_REACHED:
-        if (showit) displayChannel->SetMessage(mtInfo,tr(dishreached));
-        return true;
-        
-      case ACM_STOPPED:
-      case ACM_CHANGE:
-        if (showit) displayChannel->SetMessage(mtInfo,tr(dishwait));
-        return true;
-        
-      case ACM_ERROR:
-        if (showit) displayChannel->SetMessage(mtError,tr(disherror));
-        return false;      
-  }  
-  return false;
-
-}
-
 // --- cMenuSetupActuator ------------------------------------------------------
 
 class cMenuSetupActuator : public cMenuSetupPage {
 private:
   int newDvbKarte;
   int newMinRefresh;
+  int newShowChanges;
   cThemes themes;
   int themeIndex;
 protected:
@@ -510,10 +480,12 @@ cMenuSetupActuator::cMenuSetupActuator(void)
 {
   newDvbKarte=DvbKarte+1;
   newMinRefresh=MinRefresh;
+  newShowChanges=ShowChanges;
   themes.Load("actuator");
   themeIndex=themes.GetThemeIndex(Theme.Description());
   Add(new cMenuEditIntItem( tr("Card connected with motor"), &newDvbKarte,1,cDevice::NumDevices()));
   Add(new cMenuEditIntItem( tr("Min. screen refresh time (ms)"), &newMinRefresh,10,1000));
+  Add(new cMenuEditBoolItem( tr("Show dish moving"), &newShowChanges));
   if (themes.NumThemes())
   Add(new cMenuEditStraItem(tr("Setup.OSD$Theme"),&themeIndex, themes.NumThemes(), themes.Descriptions()));
 }
@@ -522,6 +494,7 @@ void cMenuSetupActuator::Store(void)
 {
   SetupStore("DVB-Karte", DvbKarte=newDvbKarte-1);
   SetupStore("MinRefresh", MinRefresh=newMinRefresh);
+  SetupStore("ShowChanges", ShowChanges=newShowChanges);
   SetupStore("Theme", themes.Name(themeIndex));
   themes.Load("actuator",themes.Name(themeIndex), &Theme);
 }
@@ -687,7 +660,8 @@ cMainMenuActuator::cMainMenuActuator(void)
   osd=NULL;
   digits=0;
   LimitsDisabled=false;
-  PosTracker->SaveUpdate();
+  //if we're not going to interact with the actuator, don't save the value of UpdateChannels
+  if (!PositionDisplay) PosTracker->SaveUpdate();
   static char buffer[PATH_MAX];
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
   fd_frontend = open(buffer,O_RDONLY);
@@ -758,6 +732,11 @@ cMainMenuActuator::~cMainMenuActuator()
   delete scantime;
   delete refresh;
   close(fd_frontend);
+  //Don't change channel if we're only showing the position
+  if (PositionDisplay) {
+    PositionDisplay=false;
+    return;
+  }  
   CHECK(ioctl(fd_actuator, AC_MSTOP));
   PosTracker->RestoreUpdate();
   if (OldChannel) {
@@ -794,6 +773,16 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
        status.position>=WestLimit && status.state==ACM_WEST) && !LimitsDisabled) {
     CHECK(ioctl(fd_actuator, AC_MSTOP));
     errormessage=EM_ATLIMITS;
+  }
+  //Skip normal key processing if we're just showing the position
+  if (PositionDisplay) {
+    Refresh();
+    if (Key != kNone) {
+      cRemote::Put(Key);
+      return osEnd;
+    }
+    if (status.state==ACM_IDLE) return osEnd;
+    return osContinue;
   }
   //needsFastResponse=(status.state != ACM_IDLE);
   int oldcolumn,oldline;
@@ -866,6 +855,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   if (Key!=kNone) errormessage=EM_NONE;
   switch(Key) {
     case kLeft:
+    case kLeft|k_Repeat:
              switch(selected) {
                 
                   case MI_FREQUENCY:
@@ -914,6 +904,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
              break;
                 
     case kRight:
+    case kRight|k_Repeat:
              switch(selected) {
                 
                   case MI_FREQUENCY:
@@ -961,6 +952,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
              } //switch(selected)    
              break;
     case kUp:
+    case kUp|k_Repeat:
                 menuline--;
                 if (menuline<0) menuline=MAXROW;
                 if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) { 
@@ -970,6 +962,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 if (menucolumn>=itemsperrow[menuline]) menucolumn=itemsperrow[menuline]-1;
                 break;
     case kDown: 
+    case kDown|k_Repeat:
                 menuline++;
                 if (menuline>MAXROW) menuline=0;
                 if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) {
@@ -1196,7 +1189,8 @@ void cMainMenuActuator::Show(void)
       {{ 0, 0,           Setup.OSDWidth-1, rowheight*6-1,  4},  //rows 0..5  signal info
        { 0, rowheight*7, Setup.OSDWidth-1, rowheight*19-1, 2},  //rows 7..18 menu
        { 0, rowheight*19,Setup.OSDWidth-1, rowheight*20-1, 4}}; //row  19    prompt/error
-    osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
+    //only the top area if we're just showing the position   
+    osd->SetAreas(Area, PositionDisplay ? 1 : 3);
   } else esyslog("Darn! Couldn't create osd");
   Refresh();  
 }
@@ -1219,7 +1213,8 @@ void cMainMenuActuator::DisplayOsd(void)
 
       if(osd)
       {
-         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*13-1,clrBackground);
+         //only the top area if we're just showing the position
+         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*(PositionDisplay ? 6 : 13)-1,clrBackground);
          char buf[512];
          char buf2[512];
          
@@ -1232,6 +1227,11 @@ void cMainMenuActuator::DisplayOsd(void)
            case ACM_STOPPED:
            case ACM_CHANGE:
              snprintf(buf,sizeof(buf), tr(dishwait));
+             background=clrHeaderBg;
+             text=clrHeaderText;
+             break;
+           case ACM_REACHED:
+             snprintf(buf,sizeof(buf), tr(dishreached));
              background=clrHeaderBg;
              text=clrHeaderText;
              break;
@@ -1299,6 +1299,11 @@ void cMainMenuActuator::DisplayOsd(void)
          y+=rowheight;
          BottomCorners;
 
+         //end after drawing the top area if we're just showing the position
+         if (PositionDisplay)  {
+           osd->Flush();
+           return;
+         }
          
          int left=CORNER;
          int pagewidth=Setup.OSDWidth-left*2;
@@ -1542,6 +1547,7 @@ public:
   virtual bool Start(void);
   virtual void Stop(void);
   virtual void Housekeeping(void);
+  virtual void MainThreadHook(void);
   virtual const char *MainMenuEntry(void) { return tr(MAINMENUENTRY); }
   virtual cOsdObject *MainMenuAction(void);
   virtual cMenuSetupPage *SetupMenu(void);
@@ -1575,6 +1581,20 @@ void cPluginActuator::Stop(void)
   delete statusMonitor;
   delete PosTracker;
   close(fd_actuator);
+}
+
+void cPluginActuator::MainThreadHook(void)
+{
+  //wait if it's not time to show the position
+  if (!ShowChanges || !DishIsMoving || Skins.IsOpen() || cOsd::IsOpen()) {
+    PosDelay.Set();
+    return;
+  }  
+  //after the delay has passed try to open the display
+  if (PosDelay.Elapsed()>=500) if (cRemote::CallPlugin("actuator")) {
+     //it succeded, tell the main menu to show only the position
+     PositionDisplay=true;
+  }   
 }
 
 const char *cPluginActuator::CommandLineHelp(void)
@@ -1630,6 +1650,7 @@ bool cPluginActuator::SetupParse(const char *Name, const char *Value)
   if      (!strcasecmp(Name, "DVB-Karte"))      DvbKarte = atoi(Value);
   else if (!strcasecmp(Name, "MinRefresh"))     MinRefresh = atoi(Value);
   else if (!strcasecmp(Name, "WestLimit"))      WestLimit = atoi(Value);
+  else if (!strcasecmp(Name, "ShowChanges"))    ShowChanges = atoi(Value);
   else if (!strcasecmp(Name, "Theme"))          cThemes::Load("actuator",Value, &Theme);
   else
     return false;

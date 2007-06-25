@@ -725,6 +725,27 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Eesti
     "",                                         //Dansk
   },
+  { "Show dish moving",                         //English
+    "",                                         //German
+    "",                                         //Slovenian
+    "Visualizzare movimenti",                   //Italian
+    "",                                         //Dutch
+    "",                                         //Portugues
+    "",                                         //French
+    "",                                         //Norwegian
+    "",                                         //Finnish
+    "",                                         //Polish
+    "Visualizar movimientos",                   //Spanish
+    "",                                         //Greek
+    "",                                         //Swedish
+    "",                                         //Romanian
+    "",                                         //Hugarian
+    "Visualitzar moviments",                    //Catalan
+    "",                                         //Russian
+    "",                                         //Croatian
+    "",                                         //Eesti
+    "",                                         //Dansk
+  },
   { "Are you sure?",                            //English
     "Sind sie sicher?",                         //German
     "",                                         //Slovenian
