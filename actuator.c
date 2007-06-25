@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.5";
+static const char *VERSION        = "0.0.6";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -151,7 +151,7 @@ bool cSatPosition::Parse(const char *s)
 
 bool cSatPosition::Save(FILE *f)
 {
-  return fprintf(f, "%s %d\n", cSource::ToString(source), position) > 0; 
+  return fprintf(f, "%s %d\n", *cSource::ToString(source), position) > 0; 
 }
 
 bool cSatPosition::SetPosition(int Position)
@@ -384,6 +384,7 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
     //   variable is used to remember that the device is already in transfer 
     //   mode (i.e. we ignore the first call when it is entering transfer mode)
     //
+    esyslog("actuator: switch to channel %d",ChannelNumber);
     if ((Device!=cDevice::PrimaryDevice()) || 
         (cDevice::ActualDevice()==cDevice::PrimaryDevice()) || 
         (cDevice::PrimaryDevice()->HasProgramme()) && transfer) {
@@ -904,8 +905,8 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
                snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
                break;
              case MI_SATPOSITION:
-               if (curPosition) snprintf(buf,sizeof(buf), "%s %s: %d",cSource::ToString(curSource->Code()),curSource->Description(),curPosition->Position()); 
-               else snprintf(buf,sizeof(buf), "%s %s: %s",cSource::ToString(curSource->Code()),curSource->Description(),tr(dishnopos)); 
+               if (curPosition) snprintf(buf,sizeof(buf), "%s %s: %d",*cSource::ToString(curSource->Code()),curSource->Description(),curPosition->Position()); 
+               else snprintf(buf,sizeof(buf), "%s %s: %s",*cSource::ToString(curSource->Code()),curSource->Description(),tr(dishnopos)); 
                break;  
              default:    
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
@@ -978,7 +979,7 @@ void cMainMenuActuator::GetSignalInfo(void)
 
 void cMainMenuActuator::Tune(void)
 {
-      int tmp[2]={OldChannel->Apid1(),0};  //dummy
+      int tmp[2]={OldChannel->Apid(0),0};  //dummy
       char tmp2[1][4]={"eng"}; //dummy
       int tmp3=0; //dummy
       SChannel->SetPids(OldChannel->Vpid(),OldChannel->Ppid(),&tmp[0],tmp2,&tmp3,tmp2,0);

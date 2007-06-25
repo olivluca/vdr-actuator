@@ -1,0 +1,43 @@
+--- menu.c.actuator	2005-01-09 16:17:53.577155727 +0100
++++ menu.c	2005-01-09 16:21:34.900282975 +0100
+@@ -2773,6 +2773,7 @@
+                      }
+     };
+   if (lastTime.Elapsed() < INFOTIMEOUT) {
++     if (cStatus::MsgAlterDisplayChannel(displayChannel) && lastTime.Elapsed() > DIRECTCHANNELTIMEOUT) lastTime.Set();
+      if (!number && group < 0 && channel && channel->Number() != cDevice::CurrentChannel())
+         Refresh(); // makes sure a channel switch through the SVDRP CHAN command is displayed
+      DisplayInfo();
+--- status.c.actuator	2005-01-09 12:51:04.000000000 +0100
++++ status.c	2005-01-09 16:20:42.492354684 +0100
+@@ -112,3 +112,10 @@
+   for (cStatus *sm = statusMonitors.First(); sm; sm = statusMonitors.Next(sm))
+       sm->OsdProgramme(PresentTime, PresentTitle, PresentSubtitle, FollowingTime, FollowingTitle, FollowingSubtitle);
+ }
++
++bool cStatus::MsgAlterDisplayChannel(cSkinDisplayChannel *displayChannel)
++{
++  for (cStatus *sm = statusMonitors.First(); sm; sm = statusMonitors.Next(sm))
++      if (sm->AlterDisplayChannel(displayChannel)) return true;
++  return false;    
++}
+--- status.h.actuator	2005-01-09 12:50:21.000000000 +0100
++++ status.h	2005-01-09 16:20:42.510349166 +0100
+@@ -65,6 +65,9 @@
+                // The OSD displays the single line Text with the current channel information.
+   virtual void OsdProgramme(time_t PresentTime, const char *PresentTitle, const char *PresentSubtitle, time_t FollowingTime, const char *FollowingTitle, const char *FollowingSubtitle) {}
+                // The OSD displays the given programme information.
++  virtual bool AlterDisplayChannel(cSkinDisplayChannel *displayChannel) { return false; }
++               // When channel information is on display the plugin can alter
++               // the display and, by returning true, keep it on screen 
+ public:
+   cStatus(void);
+   virtual ~cStatus();
+@@ -84,6 +87,7 @@
+   static void MsgOsdTextItem(const char *Text,  bool Scroll = false);
+   static void MsgOsdChannel(const char *Text);
+   static void MsgOsdProgramme(time_t PresentTime, const char *PresentTitle, const char *PresentSubtitle, time_t FollowingTime, const char *FollowingTitle, const char *FollowingSubtitle);
++  static bool MsgAlterDisplayChannel(cSkinDisplayChannel *displayChannel);
+   };
+ 
+ #endif //__STATUS_H

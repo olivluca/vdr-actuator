@@ -117,7 +117,8 @@ to
 
 Also remeber to put on the vdr command line the dxr3 plugin *before* the
 actuator plugin (so that it will be stopped *after* actuator has safely
-written the position to disk).
+written the position to disk). NOTE THAT THIS IS ONLY A WORKAROUND AND 
+NOT THE CORRECT AND DEFINITIVE SOLUTION.
 
 - When the pc is turned on or off my parallel port sets all data lines at 1,
 driving both relays for a very short while. Due to the wiring of the relays
