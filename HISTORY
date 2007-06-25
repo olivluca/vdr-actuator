@@ -1,6 +1,18 @@
 VDR Plugin 'actuator' Revision History
 -----------------------------------
 
+2004-08-14: Version 0.0.2
+
+- Kernel module: setting the position and immediatiely setting a target with
+  the same position would result in the module sticking in the ACM_REACHED
+  state. Hopefully fixed.
+- Kernel module: now setting a new target clears the ACM_REACHED state.
+- Set the current position at initialization only if the module has just been
+  loaded (position 0), otherwise trust the position stored in the driver.
+- Moved position storing in separate thread
+- OSD cleanup
+- Modfied patch to not mess up channel switching while the dish is moving
+
 2004-08-11: Version 0.0.1
 
 - Initial revision.

@@ -96,7 +96,6 @@ static void motor_go(unsigned char direction)
   if (direction != MD_STOP) {
     lastdirection = direction;
     if (direction == MD_WEST) status.state = ACM_WEST; else status.state = ACM_EAST;
-    set_timer();
   }  
 }
 
@@ -114,6 +113,7 @@ static void set_mode(unsigned int newmode, unsigned int newtarget)
       
   case AC_AUTO:
       status.target=newtarget;
+      if (status.state==ACM_REACHED) status.state=ACM_STOPPED;
       if (status.target>status.position) nextstate=ACM_WEST;
       else if (status.target<status.position) nextstate=ACM_EAST;
       else nextstate=ACM_REACHED;
@@ -140,7 +140,7 @@ static void set_mode(unsigned int newmode, unsigned int newtarget)
     if (status.state==ACM_EAST) motor_go(MD_EAST);
     else if (status.state==ACM_WEST) motor_go(MD_WEST);
     else motor_go(MD_STOP);
-    if (status.state==ACM_REACHED) set_timer();
+    if (status.state!=ACM_IDLE) set_timer();
   }
 }
 
@@ -170,6 +170,7 @@ static void actuator_timer (unsigned long cookie)
       lastdirection=MD_STOP; //if needed motor_go will change it
       if (status.state==ACM_EAST) motor_go(MD_EAST);
       else if (status.state==ACM_WEST) motor_go(MD_WEST);
+      if (status.state!=ACM_IDLE) set_timer();
       break;
   }        
   spin_unlock(&lock);

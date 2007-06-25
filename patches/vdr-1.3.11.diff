@@ -4,7 +4,7 @@
                       }
      };
    if (time_ms() - lastTime < INFOTIMEOUT) {
-+     if (cStatus::MsgAlterDisplayChannel(displayChannel)) lastTime = time_ms();
++     if (cStatus::MsgAlterDisplayChannel(displayChannel) && time_ms() -lastTime > DIRECTCHANNELTIMEOUT) lastTime = time_ms();
       if (!number && group < 0 && channel && channel->Number() != cDevice::CurrentChannel())
          Refresh(); // makes sure a channel switch through the SVDRP CHAN command is displayed
       DisplayInfo();

@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.1";
+static const char *VERSION        = "0.0.2";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -115,27 +115,8 @@ int WestLimit=0;
 //actuator device
 int fd_actuator;
 
-//position memory 
-const char *PositionFilename;
-int LastPositionSaved;
-cMutex *PosMutex;
-
 //how to access SetupStore inside the main menu?
 cPlugin *theplugin;
-
-// ----------------------------------------------------------------------------
-
-void SavePos(int NewPos) {
-  cMutexLock(PosMutex);
-  if(NewPos!=LastPositionSaved) {
-    cSafeFile f(PositionFilename);
-    if (f.Open()) {
-      fprintf(f,"%d",NewPos);
-      f.Close();
-      LastPositionSaved=NewPos;
-    } else LOG_ERROR;
-  }    
-}
 
 // --- cSatPosition -----------------------------------------------------------
 // associates one source with its position
@@ -211,6 +192,90 @@ void cSatPositions::Recalc(int offset)
 
 cSatPositions SatPositions;
 
+//--- cPosTracker -----------------------------------------------------------
+// Follows the dish when it's moving to store the position on disk
+
+class cPosTracker:private cThread {
+private:
+  int LastPositionSaved;
+  int fd_actuator;
+  bool forcesave;
+  bool stopit;
+  const char *positionfilename;
+  cCondVar *trackwait;
+  cMutex mutex;
+public:
+  cPosTracker(void);    
+  ~cPosTracker(void);
+  void Track(void);
+  void SavePos(int newpos);
+  const char *PositionFilename(void) { return positionfilename; }
+protected:
+  void Action(void);
+};
+
+cPosTracker::cPosTracker(void):cThread("Position Tracker")
+{
+  fd_actuator = open("/dev/actuator",0);
+  positionfilename=strdup(AddDirectory(cPlugin::ConfigDirectory(), "actuator.pos"));
+  forcesave=true;
+  stopit=false;
+  trackwait=new cCondVar();
+  if (fd_actuator) Start();
+}
+
+cPosTracker::~cPosTracker(void)
+{
+  if (fd_actuator) {
+    stopit=true;
+    trackwait->Broadcast();
+    Cancel(5);
+  }  
+}
+
+void cPosTracker::SavePos(int NewPos)
+{
+  if(forcesave || NewPos!=LastPositionSaved) {
+    cSafeFile f(positionfilename);
+    if (f.Open()) {
+      fprintf(f,"%d",NewPos);
+      f.Close();
+      LastPositionSaved=NewPos;
+      forcesave=false;
+    } else LOG_ERROR;
+  }    
+}
+
+void cPosTracker::Track(void)
+{
+  if (fd_actuator) trackwait->Broadcast();
+}
+
+void cPosTracker::Action(void)
+{
+  actuator_status status;
+  while(true) {
+    cMutexLock MutexLock(&mutex);
+    trackwait->Wait(mutex);
+    if (stopit) { 
+      CHECK(ioctl(fd_actuator, AC_MSTOP));
+      sleep(1);
+      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+      SavePos(status.position);
+      close(fd_actuator);
+      return; 
+    }
+    while (true) {
+      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+      SavePos(status.position);
+      if (status.state==ACM_IDLE) break;
+      usleep(50000);
+    }
+  }  
+}
+
+cPosTracker *PosTracker;
+
 // --- cStatusMonitor -------------------------------------------------------
 
 class cStatusMonitor:public cStatus {
@@ -261,10 +326,10 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
        dsyslog("New sat position: %i",target);
        if (target>=0 && target<=WestLimit) {
          CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-         SavePos(status.position);
          if (status.position!=target || status.target!=target)  {
            dsyslog("Satellite changed");
            CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
+           PosTracker->Track();
          } else { //already positioned
            if(oldupdate>=0) {
              Setup.UpdateChannels=oldupdate;
@@ -292,7 +357,6 @@ bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
   char *buf=NULL;
 
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  SavePos(status.position);
   
   bool showit=((last_state_shown != status.state) || (last_position_shown != status.position));
   last_state_shown=status.state;
@@ -315,9 +379,10 @@ bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
         if (target>=0 && status.target == target && oldupdate>=0 ) {
           Setup.UpdateChannels=oldupdate;
           oldupdate=-1;
+          target=-1;
+          return false;
           }
-        target=-1;    
-        return false;
+        return true;
         
       case ACM_STOPPED:
       case ACM_CHANGE:
@@ -446,18 +511,21 @@ private:
   cChannel Channel;
   cOsd *osd;
   tColor color;
+  fe_status_t fe_status;
+  unsigned int fe_ber;
+  unsigned int fe_ss;
+  unsigned int fe_snr;
+  unsigned int fe_unc;
+  float ssdBm;
+  float snrdB;
 
 public:
   cMainMenuActuator(void);
   ~cMainMenuActuator();
   virtual void Show(void);
   virtual eOSState ProcessKey(eKeys Key);
-  void DisplaySignalInfoOnOsd(fe_status_t status,unsigned int ber,unsigned int ss,float ssdBm,unsigned int snr,float snrdB,unsigned int unc);
-  void GetSignalInfo(         fe_status_t &status,
-                             unsigned int &BERChip,
-                             unsigned int &SSChip,
-                             unsigned int &SNRChip,
-                             unsigned int &UNCChip  );
+  void DisplaySignalInfoOnOsd(void);
+  void GetSignalInfo(void);
   bool Signal(int Frequenz, char *Pol, int Symbolrate);
 };
 
@@ -474,6 +542,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   menuline=1;
   paint=0;
   osd=NULL;
+  digits=0;
   LimitsDisabled=false;
   static char buffer[PATH_MAX];
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
@@ -492,7 +561,6 @@ cMainMenuActuator::cMainMenuActuator(void)
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
   needsFastResponse=((status.state == ACM_EAST) || (status.state == ACM_WEST));
-  SavePos(status.position);
 }
 
 cMainMenuActuator::~cMainMenuActuator()
@@ -509,24 +577,8 @@ cMainMenuActuator::~cMainMenuActuator()
 
 void cMainMenuActuator::Show(void)
 {
-        fe_status_t status;
-        unsigned int BERChip=0;
-        unsigned int SSChip=0;
-        unsigned int SNRChip=0;
-        unsigned int UNCChip=0;
-        GetSignalInfo(status,BERChip,SSChip,SNRChip,UNCChip);
-        float snrdB = 0.0;
-        float ssdBm = 0.0;
-        unsigned int unc = UNCChip;
-        unsigned int ber = BERChip;
-        unsigned int ss = SSChip/655;
-        unsigned int snr = SNRChip/655;
-        ssdBm = (logf(((double)SSChip)/65535)*10.8);
-        if (SNRChip>57000)
-         snrdB = (logf((double)SNRChip/6553.5)*10.0);
-        else
-         snrdB = (-3/(logf(SNRChip/65535.0)));
-        DisplaySignalInfoOnOsd(status,ber,ss,ssdBm,snr,snrdB,unc);
+        GetSignalInfo();
+        DisplaySignalInfoOnOsd();
 
 }
 
@@ -544,7 +596,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     CHECK(ioctl(fd_actuator, AC_MSTOP));
     errormessage=EM_ATLIMITS;
   }
-  SavePos(status.position);
   needsFastResponse=(status.state != ACM_IDLE);
   if (state == osUnknown) {
   int oldcolumn,oldline;
@@ -601,6 +652,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (status.position<=0 && !LimitsDisabled) errormessage=EM_ATLIMITS;
                    else {   
                      CHECK(ioctl(fd_actuator, AC_MEAST));
+                     PosTracker->Track();
                      needsFastResponse=true;
                    }  
                    break;
@@ -611,6 +663,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (status.position>=WestLimit && !LimitsDisabled) errormessage=EM_ATLIMITS;
                    else {   
                      CHECK(ioctl(fd_actuator, AC_MWEST));
+                     PosTracker->Track();
                      needsFastResponse=true;
                    }  
                    break;
@@ -620,6 +673,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      else {
                        newpos=curPosition->Position();
                        CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+                       PosTracker->Track();
                        conf=0;
                      }  
                    }
@@ -627,6 +681,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 case MI_GOTO:
                    if (LimitsDisabled || (menuvalue[MI_GOTO]>=0 && menuvalue[MI_GOTO]<=WestLimit)) {
                      CHECK(ioctl(fd_actuator, AC_WTARGET, &menuvalue[MI_GOTO]));
+                     PosTracker->Track();
                      needsFastResponse=true;
                    } else errormessage=EM_OUTSIDELIMITS;
                    break;
@@ -648,6 +703,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      if (selected==MI_STEPSEAST) newpos=status.position-menuvalue[MI_STEPSEAST];
                        else newpos=status.position+menuvalue[MI_STEPSWEST];
                      CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
+                     PosTracker->Track();
                      needsFastResponse=true;
                    }    
                    break;
@@ -662,6 +718,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      SatPositions.Recalc(-status.position);
                      newpos=0;
                      CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+                     PosTracker->Track();
                      conf=0;
                    }  
                    break;
@@ -670,6 +727,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    else {
                      newpos=0;
                      CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+                     PosTracker->Track();
                      conf=0;
                    }  
                    break;
@@ -711,6 +769,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      newpos=curPosition->Position();
                      if (LimitsDisabled || (newpos>=0 && newpos<=WestLimit)) {
                        CHECK(ioctl(fd_actuator,AC_WTARGET,&newpos));
+                       PosTracker->Track();
                        needsFastResponse=true;
                      } else errormessage=EM_OUTSIDELIMITS; 
                    } 
@@ -745,20 +804,23 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   return state;
 }
 
-void cMainMenuActuator::DisplaySignalInfoOnOsd(fe_status_t status,unsigned int ber,unsigned int ss,float ssdBm,unsigned int snr,float snrdB,unsigned int unc)
+void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
 {
       int RedLimit=415*30/100;
       int YellowLimit=max(RedLimit,415*60/100);
-      int ShowSNR = 415*snr/100;
-      int ShowSS =  415*ss/100;
-      int PositionY = 0;
+      int ShowSNR = 415*fe_snr/100;
+      int ShowSS =  415*fe_ss/100;
+      const cFont *textfont=cFont::GetFont(fontOsd);
+      int rowheight=textfont->Height();
+      
+#define OSDWIDTH 655
 
 if (paint==0) {
         paint=1;
       osd = cOsdProvider::NewOsd(40,50);
-         tArea Area[] =    {{0,0, 655, 119, 4},
-			   { 0, 120,655,419, 2},
-			   { 0, 420,655,449,2}};
+         tArea Area[] =    {{0, 0,           OSDWIDTH, rowheight*4-1, 4},   //rows 0..3  signal info
+			   { 0, rowheight*5, OSDWIDTH, rowheight*13-1, 2},  //rows 5..12 menu
+			   { 0, rowheight*13,OSDWIDTH, rowheight*14-1, 2}}; //row  13    prompt/error
 	 osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));			
 ;
 	 osd->Flush();
@@ -767,57 +829,20 @@ if (paint==0) {
 }
       if(osd)
       {
-         osd->DrawRectangle(0,0,655,470,clrGray50);
+         osd->DrawRectangle(0,0,OSDWIDTH,rowheight*13-1,clrGray50);
          char buf[1024];
-         const cFont *textfont=cFont::GetFont(fontOsd);
          
-         sprintf(buf,"SNR:");
-         osd->DrawText(10, 3,buf,clrWhite,clrTransparent, textfont);
-         osd->DrawRectangle(68, 10, 68+min(RedLimit,ShowSNR), 25, clrRed);
-         if(ShowSNR>RedLimit) osd->DrawRectangle(68+RedLimit, 10, 68+min(YellowLimit,ShowSNR), 25, clrYellow);
-         if(ShowSNR>YellowLimit) osd->DrawRectangle(68+YellowLimit, 10, 68+ShowSNR, 25, clrGreen);
-         
-         sprintf(buf,"%d%% = %.1fdB",snr,snrdB);
-         osd->DrawText(485, 3,buf,clrWhite,clrTransparent, textfont);
-         PositionY = PositionY + 35;
-         sprintf(buf,"SS:");
-         osd->DrawText(10, 3+PositionY,buf,clrWhite,clrTransparent, textfont);
-         osd->DrawRectangle(68, 10+PositionY, 68+min(RedLimit,ShowSS), 25+PositionY, clrRed);
-         if(ShowSS>RedLimit) osd->DrawRectangle(68+RedLimit, 10+PositionY, 68+min(YellowLimit,ShowSS), 25+PositionY, clrYellow);
-         if(ShowSS>YellowLimit) osd->DrawRectangle(68+YellowLimit, 10+PositionY, 68+ShowSS, 25+PositionY, clrGreen);
-         
-         sprintf(buf,"%d%% = %.1fdBm",ss,ssdBm);
-         osd->DrawText(485, 3+PositionY,buf,clrWhite,clrTransparent, textfont);
-         PositionY = PositionY + 35;
-         
-         osd->DrawRectangle(100,70,110,80, (status & FE_HAS_SIGNAL) ? clrGreen : clrRed);
-         osd->DrawRectangle(150,70,160,80, (status & FE_HAS_CARRIER) ? clrGreen : clrRed);
-         osd->DrawRectangle(200,70,210,80, (status & FE_HAS_VITERBI) ? clrGreen : clrRed);
-         osd->DrawRectangle(250,70,260,80, (status & FE_HAS_SYNC) ? clrGreen : clrRed);
-         
-         tColor text, background;
-         
-         int top=90;
-         int left=15;
-         int pagewidth=655-left*2;
-         int colspace=6;
-         int colwidth=(pagewidth+colspace)/3;
-         int rowheight=30;
-         int rowspace=3;
-         int height=rowheight-rowspace;
-         int currow=0;
-         int curcol=0;
-         int curtop;
+         int y=0;
          
          actuator_status status;
+         tColor text, background;
          CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-         SavePos(status.position);
          switch(status.state) {
            case ACM_STOPPED:
            case ACM_CHANGE:
              snprintf(buf,sizeof(buf), tr(dishwait));
-             background=clrGray50;
-             text=clrWhite;
+             background=clrWhite;
+             text=clrBlack;
              break;
            case ACM_ERROR:
              snprintf(buf,sizeof(buf), tr(disherror));
@@ -826,21 +851,57 @@ if (paint==0) {
              break;
           default:
              snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
-             background=clrGray50;
-             text=clrWhite;
+             background=clrWhite;
+             text=clrBlack;
          }      
-         osd->DrawText(left,top+currow*rowheight,buf,text,background,textfont,pagewidth,height);
+         osd->DrawText(10,y,buf,text,background,textfont,OSDWIDTH,y+rowheight-1,taLeft);
          
-         currow+=2; //empty line -- enter second tArea
+         
+         y+=rowheight;
+         int bartop=y+rowheight/3;
+         int barbottom=y+rowheight-rowheight/3-1;
+         osd->DrawText(10, y, "SNR:",clrWhite,clrTransparent, textfont);
+         osd->DrawRectangle(68, bartop, 68+min(RedLimit,ShowSNR), barbottom, clrRed);
+         if(ShowSNR>RedLimit) osd->DrawRectangle(68+RedLimit, bartop, 68+min(YellowLimit,ShowSNR), barbottom, clrYellow);
+         if(ShowSNR>YellowLimit) osd->DrawRectangle(68+YellowLimit, bartop, 68+ShowSNR, barbottom, clrGreen);
+         sprintf(buf,"%d%% = %.1fdB",fe_snr,snrdB);
+         osd->DrawText(485, y,buf,clrWhite,clrTransparent, textfont);
+         
+         y+=rowheight;
+         bartop+=rowheight;
+         barbottom+=rowheight;
+         sprintf(buf,"SS:");
+         osd->DrawText(10, y,"SS:",clrWhite,clrTransparent, textfont);
+         osd->DrawRectangle(68, bartop, 68+min(RedLimit,ShowSS), barbottom, clrRed);
+         if(ShowSS>RedLimit) osd->DrawRectangle(68+RedLimit, bartop, 68+min(YellowLimit,ShowSS), barbottom, clrYellow);
+         if(ShowSS>YellowLimit) osd->DrawRectangle(68+YellowLimit, bartop, 68+ShowSS, barbottom, clrGreen);
+         sprintf(buf,"%d%% = %.1fdBm",fe_ss,ssdBm);
+         osd->DrawText(485, y,buf,clrWhite,clrTransparent, textfont);
+         
+#define OSDSTATUSWIN_XC(col,txt) (((col - 1) * OSDWIDTH / 5) + ((OSDWIDTH / 5 - textfont->Width(txt)) / 2))
+         
+         y+=rowheight;
+         osd->DrawText(OSDSTATUSWIN_XC(1,"LOCK"),    y, "LOCK",    (fe_status & FE_HAS_LOCK)    ? clrYellow : clrBlack, clrTransparent, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(2,"SIGNAL"),  y, "SIGNAL",  (fe_status & FE_HAS_SIGNAL)  ? clrYellow : clrBlack, clrTransparent, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(3,"CARRIER"), y, "CARRIER", (fe_status & FE_HAS_CARRIER) ? clrYellow : clrBlack, clrTransparent, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(4,"VITERBI"), y, "VITERBI", (fe_status & FE_HAS_VITERBI) ? clrYellow : clrBlack, clrTransparent, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(5,"SYNC"),    y, "SYNC",    (fe_status & FE_HAS_SYNC)    ? clrYellow : clrBlack, clrTransparent, textfont);
+         
+         int left=10;
+         int pagewidth=OSDWIDTH-left*2;
+         int colspace=6;
+         int colwidth=(pagewidth+colspace)/3;
+         int curcol=0;
+         
+         y+=rowheight*2; //enter second display area
          
          int selected;
          if (menuline<4) selected=menuline*3+menucolumn;
            else selected=menuline+8;
            
          int itemindex;
+         int x=left;
          for (itemindex=0; itemindex<=MAXMENUITEM; itemindex++) {
-           curtop=top+currow*rowheight;
-           int curleft=left+curcol*colwidth;
            int curwidth=menurowcol[itemindex][IWIDTH]*colwidth-colspace;
            if (itemindex==selected) {
              background=clrYellow;
@@ -856,13 +917,13 @@ if (paint==0) {
              case MI_FREQUENCY:
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"%d%s ", menuvalue[itemindex], Pol);
-               osd->DrawText(curleft+curwidth,curtop,buf,text,background,textfont,colwidth,height,taRight);
+               osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf, sizeof(buf), tr(menucaption[itemindex]));
                break;
              case MI_SYMBOLRATE:
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"%d ", menuvalue[itemindex]);
-               osd->DrawText(curleft+curwidth,curtop,buf,text,background,textfont,colwidth,height,taRight);
+               osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
                break;
              case MI_SATPOSITION:
@@ -872,38 +933,40 @@ if (paint==0) {
              default:    
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
            }
-           osd->DrawText(curleft,curtop,buf,text,background,textfont,curwidth,height,
+           osd->DrawText(x,y,buf,text,background,textfont,curwidth,rowheight,
                curcol==0 ? taDefault : (curcol==1 ? taCenter : taRight));
            if(itemindex<12) {
              curcol++;
+             x+=colwidth;
              if (curcol>2) {
-               currow++;
+               y+=rowheight;
                curcol=0;
+               x=left;
              }
            } else {
              curcol=0;
-             currow++;
+             y+=rowheight;
+             x=left;
            }  
          }
-        currow++;
-        curtop=top+currow*rowheight;
          
-        if (conf==1) osd->DrawText(left,curtop,tr("Are you sure?"),clrWhite,clrRed,textfont,pagewidth,height,taCenter);
+        //y=+rowheight;
+        if (conf==1) osd->DrawText(left,y,tr("Are you sure?"),clrWhite,clrRed,textfont,OSDWIDTH,rowheight,taCenter);
         else {
           switch(errormessage) {
             case EM_OUTSIDELIMITS:
               snprintf(buf, sizeof(buf),"%s (0..%d)", tr(outsidelimits), WestLimit);
-              osd->DrawText(left,curtop,buf,clrWhite,clrRed,textfont,pagewidth,height,taCenter);
+              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
               break;
             case EM_ATLIMITS:  
               snprintf(buf, sizeof(buf), "%s (0..%d)", tr(atlimits), WestLimit);
-              osd->DrawText(left,curtop,buf,clrWhite,clrRed,textfont,pagewidth,height,taCenter);
+              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
               break;
             case EM_NOTPOSITIONED:
-              osd->DrawText(left,curtop,tr(notpositioned),clrWhite,clrRed,textfont,pagewidth,height,taCenter);
+              osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
               break;
             default:  
-              osd->DrawRectangle(left,curtop,left+pagewidth-1,curtop+height-1,clrGray50); 
+              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrTransparent); 
           }  
         }
         osd->Flush();
@@ -911,28 +974,30 @@ if (paint==0) {
       else esyslog("Darn! Couldn't create osd");
 }
 
-void cMainMenuActuator::GetSignalInfo(fe_status_t &status,
-                             unsigned int &BERChip,
-                             unsigned int &SSChip,
-                             unsigned int &SNRChip,
-                             unsigned int &UNCChip
-                                )
+void cMainMenuActuator::GetSignalInfo(void)
 {
-      status = fe_status_t(0);
+      fe_status = fe_status_t(0);
       usleep(15);
-      CHECK(ioctl(fd_frontend, FE_READ_STATUS, &status));
+      CHECK(ioctl(fd_frontend, FE_READ_STATUS, &fe_status));
       usleep(15);                                                 //µsleep necessary else returned values may be junk
-      BERChip=0;                                    //set variables to zero before ioctl, else FE_call sometimes returns junk
-      CHECK(ioctl(fd_frontend, FE_READ_BER, &BERChip));
+      fe_ber=0;                                    //set variables to zero before ioctl, else FE_call sometimes returns junk
+      CHECK(ioctl(fd_frontend, FE_READ_BER, &fe_ber));
       usleep(15);
-      SSChip=0;
-      CHECK(ioctl(fd_frontend, FE_READ_SIGNAL_STRENGTH, &SSChip));
+      fe_ss=0;
+      CHECK(ioctl(fd_frontend, FE_READ_SIGNAL_STRENGTH, &fe_ss));
+      fe_ss=fe_ss/655;
+      ssdBm = (logf(((double)fe_ss)/65535)*10.8);
       usleep(15);
-      SNRChip=0;
-      CHECK(ioctl(fd_frontend, FE_READ_SNR, &SNRChip));
+      fe_snr=0;
+      CHECK(ioctl(fd_frontend, FE_READ_SNR, &fe_snr));
+      fe_snr=fe_snr/655;
+      if (fe_snr>57000)
+       snrdB = (logf((double)fe_snr/6553.5)*10.0);
+      else
+       snrdB = (-3/(logf(fe_snr/65535.0)));
       usleep(15);
-      UNCChip=0;
-      CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &UNCChip));
+      fe_unc=0;
+      CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
 }
 
 bool cMainMenuActuator::Signal(int Frequenz, char *Pol, int Symbolrate)
@@ -994,7 +1059,6 @@ cPluginActuator::cPluginActuator(void)
     esyslog("Cannot open /dev/actuator: %s", strerror(errno));
     exit(1);
   }
-  PosMutex = new cMutex();
   // Initialize any member variables here.
   // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
   // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
@@ -1003,11 +1067,9 @@ cPluginActuator::cPluginActuator(void)
 cPluginActuator::~cPluginActuator()
 {
   // Clean up after yourself!
-  actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  SavePos(status.position);
+  CHECK(ioctl(fd_actuator, AC_MSTOP));
   delete statusMonitor;
-  delete PosMutex;
+  delete PosTracker;
   close(fd_actuator);
 }
 
@@ -1026,16 +1088,24 @@ bool cPluginActuator::ProcessArgs(int argc, char *argv[])
 bool cPluginActuator::Initialize(void)
 {
   // Initialize any background activities the plugin shall perform.
-  PositionFilename=strdup(AddDirectory(ConfigDirectory(), "actuator.pos"));
-  FILE *f=fopen(PositionFilename,"r");
-  if(f) {
-    int newpos;
-    if (fscanf(f,"%d",&newpos)==1) { 
-      isyslog("Read position %d from %s",newpos,PositionFilename); 
-      CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
-    } else esyslog("couldn't read dish position from %s",PositionFilename);
-    fclose(f);
-  } else esyslog("Couldn't open file %s: %s",PositionFilename,strerror(errno));
+  PosTracker=new cPosTracker();
+  actuator_status status;
+  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+  if (status.position==0) {
+    //driver just loaded, try to get the position from the file
+    FILE *f=fopen(PosTracker->PositionFilename(),"r");
+    if(f) {
+      int newpos;
+      if (fscanf(f,"%d",&newpos)==1) { 
+        isyslog("Read position %d from %s",newpos,PosTracker->PositionFilename()); 
+        CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+      } else esyslog("couldn't read dish position from %s",PosTracker->PositionFilename());
+      fclose(f);
+    } else esyslog("Couldn't open file %s: %s",PosTracker->PositionFilename(),strerror(errno));
+  }  else {
+    //driver already loaded, trust it
+    PosTracker->SavePos(status.position);
+  }  
   return true;
 }
 
@@ -1051,9 +1121,6 @@ bool cPluginActuator::Start(void)
 void cPluginActuator::Housekeeping(void)
 {
   // Perform any cleanup or other regular tasks.
-  actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  SavePos(status.position);
 }
 
 cOsdObject *cPluginActuator::MainMenuAction(void)
