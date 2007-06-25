@@ -25,10 +25,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Mou cap a l'est",
     "+ï ð÷ÀÁ÷ç",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Halt",
     "Anhalten",
@@ -45,10 +46,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Atura",
     "àÁ÷ú",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Drive West",
     "Nach Westen",
@@ -65,10 +67,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Mou cap a l'oest",
     "+ï âïúïò",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Recalc",
     "Recalc",
@@ -85,10 +88,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Recalcula",
     "©óÞóÀÃüÁïÁË",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Goto %d",
     "Gehe zu %d",
@@ -105,10 +109,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Anar a %d",
     "©óÞóûÁü %d",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Store",
     "Speichere",
@@ -125,10 +130,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Memoritza",
     "Tïú÷ýùüÁË",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "%d Steps East",
     "%d Schritte Osten",
@@ -145,10 +151,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "%d Passos Est",
     "%d Õïñ(÷ð) ùï ð÷ÀÁ÷ç",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "%d Steps West",
     "%d Schritte Westen",
@@ -165,10 +172,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "%d Passos Oest",
     "Õïñ(÷ð) ùï âïúïò",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Set East Limit",
     "Ost-Limit setzen",
@@ -185,10 +193,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Ajusta Límit Est",
     "¦÷ÀÁ÷ÃùÊû úÞóòóø",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Set Zero",
     "",// TODO
@@ -205,10 +214,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Posada a zero",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Set West Limit",
     "West-Limit setzen",
@@ -225,10 +235,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Ajusta Límit Oest",
     "TïúïòùÊû úÞóòóø",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Frequency:",
     "Frequenz:",
@@ -245,10 +256,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Freqüència:",
     "ãïÀÁ÷Áï:",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Symbolrate:",
     "Symbolrate:",
@@ -256,44 +268,88 @@ const tI18nPhrase Phrases[] = {
     "Symbolrate:",
     "",// TODO
     "",// TODO
-    "SymbolRate",
+    "SymbolRate:",
     "",// TODO
     "",// TODO
     "",// TODO
-    "SymbolRate",
+    "SymbolRate:",
     "",// TODO
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "SymbolRate:",
     "àüýð. Àç÷Þ÷ÀÁË",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
+  },
+  { "Vpid:",
+    "Vpid:",
+    "",// TODO
+    "Vpid:",
+    "",// TODO
+    "",// TODO
+    "Vpid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Vpid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Vpid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+  },
+  { "Apid:",
+    "Apid:",
+    "",// TODO
+    "Apid:",
+    "",// TODO
+    "",// TODO
+    "Apid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Apid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Apid:",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Scan Transponder",
     "Scan Transponder",
     "",// TODO
-    "Scan Transponder",
+    "Scansione Transponder",
     "",// TODO
     "",// TODO
     "Scanner Transpondeur",
     "",// TODO
     "",// TODO
     "",// TODO
-    "Scan Transpondedor",
+    "Escaneo Transponder",
     "",// TODO
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Escaneja Transponder",
     "àüýð. Àç÷Þ÷ÀÁË",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Enable Limits",
     "Limits ein",
     "",// TODO
-    "Attiva Limiti",// TODO
+    "Attiva Limiti",
     "",// TODO
     "",// TODO
     "Activer Limites",
@@ -305,10 +361,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Activa Límits",
     "¦çøÍÃüÁË úÞóòóøÊ",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Disable Limits",
     "Limits aus",
@@ -325,10 +382,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Desactiva Límits",
     "+ÁçøÍÃüÁË úÞóòóøÊ",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Dish target: %d, position: %d",
     "",// TODO
@@ -345,10 +403,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Destinació disc: %d, posició: %d",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Position reached",
     "",// TODO
@@ -365,10 +424,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Arribat en posició",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Motor wait",
     "",// TODO
@@ -385,10 +445,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Espera motor",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Motor error",
     "",// TODO
@@ -405,10 +466,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Error motor",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Position not set",
     "",// TODO
@@ -425,10 +487,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Posició no ajustada",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Not positioned",
     "",// TODO
@@ -445,10 +508,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "No posicionat",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Dish at limits",
     "",// TODO
@@ -465,10 +529,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Arribat a límit",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Position outside limits",
     "",// TODO
@@ -485,10 +550,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Posició fora dels límits",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
 //Setup
   { "Card, connected with motor",
@@ -506,10 +572,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Tarja connectada al motor",
     "¦ïÞÁï À÷óòüùßùùïÎ À ú÷òðóÀ÷ý",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Are you sure?",
     "Sind sie sicher?",
@@ -526,10 +593,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
-    "",// TODO
-#if VDRVERSNUM >= 10302
+    "Està segur?",
     "¦Ê ÖðóÞóùÊ?",
-#endif
+    "",// TODO
+    "",// TODO
+    "",// TODO
   },
   { "Actuator",
     "",// TODO
@@ -546,10 +614,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Actuador",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { "Linear or h-h actuator control",
     "",// TODO
@@ -566,10 +635,11 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
     "",// TODO
+    "Controla un actuador lineal o h-h",
     "",// TODO
-#if VDRVERSNUM >= 10302
     "",// TODO
-#endif
+    "",// TODO
+    "",// TODO
   },
   { NULL }
   };

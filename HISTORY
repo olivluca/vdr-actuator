@@ -1,5 +1,15 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2005-02-06: Version 0.0.7
+- Added the possibility to specify vpid and apid when tuning to a
+  transponder.
+- Added some logic to show the tuned channel (I'm not sure it is right
+  but "it works here"(tm))
+- Added the "steerable" and "sort-by-source" patch
+- Show signal information like the femon plugin (i.e. show signal
+  strength and snr as raw value and percentage, show ber and unc)
+- Added catalan translation
+
 2005-01-09: Version 0.0.6
 - New version for vdr 1.3.18
 - Note in README that the solution to the dxr3 shutdown problem is only

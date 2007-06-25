@@ -7,7 +7,7 @@ Thomas Bergwinkl <Thomas.Bergwinkl@t-online.de>
 
 See the file COPYING for license information.
 
-THIS PLUGINS NEEDS vdr >= 1.3.7
+THIS PLUGINS NEEDS vdr >= 1.3.19
 
 DESCRIPTION
 
@@ -73,9 +73,10 @@ If you're positioned on the line showing the current satellite, you can
 select another one with the left and right buttons and go to its position
 with the Ok button.
 
-Frequency & Symbolrate: Here you can select a frequency, polarization (by
-pressing left/right) and symbolrate you want to tune to (by pressing OK)
-and see what signal-strength you get there.
+Frequency, Symbolrate, Vpid & Apid: Here you can select the parameters 
+(switch the polarizaton pressing left/right) of a transponder  you want
+to tune to (by pressing OK) and see what signal-strength you get there.
+When possible you should also see the new channel on scree.
 
 Scan Transponder: If you press OK on Scan Transponder, vdr
 will switch to the selected transponder and scan for new/updated channels.
@@ -141,3 +142,13 @@ any source (satellite), regardless to the dish/lnb the card is connected to.
 This is obviously wrong. Attached to the following post you'll find a patch
 to configure which sources (satellites) a card can relly tune to:
 http://article.gmane.org/gmane.linux.vdr/14038
+
+- Vdr now checks for a lock during 5 seconds after switching channels. 
+If the new channel is on a different satellite there won't be a lock at
+once: depending on the distance vdr will get stuck up to 5 seconds and then,
+if the position hasn't been reached yet, will show a black screen.
+In the patches subdirectory there's a vdr-x.x.x-steerable.patch to reverse
+to the old behaviour (i.e. vdr doesn't wait for a lock. It doesn't seem to
+have adverse effects here but YMMV).
+The same patch also gives more time for the dish to reach the target after
+starting a recording.

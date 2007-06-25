@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.6";
+static const char *VERSION        = "0.0.7";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -38,9 +38,12 @@ enum menuindex {
                    MI_SATPOSITION,
                    MI_FREQUENCY,
                    MI_SYMBOLRATE,
+                   MI_VPID,
+                   MI_APID,
                    MI_SCANTRANSPONDER
   };
 
+#define FIRST_MI_ONECOLUMN MI_SATPOSITION
 #define MAXMENUITEM MI_SCANTRANSPONDER
 
 
@@ -53,6 +56,8 @@ static const char *menucaption[] = {
                                    "", //Sat position
                                    "Frequency:",
                                    "Symbolrate:",
+                                   "Vpid:",
+                                   "Apid:",
                                    "Scan Transponder"
                                   };
 #define ENABLELIMITS "Enable Limits"
@@ -68,6 +73,8 @@ static const int menucolwidth[] = {
                                           3,
                                           3,
                                           3,
+                                          3,
+                                          3,
                                           3
                                 };                                   
                                   
@@ -80,6 +87,8 @@ static const int menudigits[] = {
                                    0,
                                    5,
                                    5,
+                                   4,
+                                   4,
                                    0
                                    };                                  
 
@@ -499,14 +508,13 @@ private:
   cChannel *OldChannel;
   cChannel *SChannel;
   cOsd *osd;
+  const cFont *textfont;
   tColor color;
   fe_status_t fe_status;
-  unsigned int fe_ber;
-  unsigned int fe_ss;
-  unsigned int fe_snr;
-  unsigned int fe_unc;
-  float ssdBm;
-  float snrdB;
+  uint16_t fe_ss;
+  uint16_t fe_snr;
+  uint32_t fe_ber;
+  uint32_t fe_unc;
 
 public:
   cMainMenuActuator(void);
@@ -545,10 +553,21 @@ cMainMenuActuator::cMainMenuActuator(void)
   if (Pol=='v') Pol='V';
   if (Pol=='h') Pol='H';
   menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
+  menuvalue[MI_VPID]=OldChannel->Vpid();
+  menuvalue[MI_APID]=OldChannel->Apid(0);
   actuator_status status;
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
   needsFastResponse=((status.state == ACM_EAST) || (status.state == ACM_WEST));
+  if (Setup.UseSmallFont == 0) {
+    // Dirty hack to force the small fonts...
+    Setup.UseSmallFont = 1;
+    textfont = cFont::GetFont(fontSml);
+    Setup.UseSmallFont = 0;
+  }
+  else
+    textfont = cFont::GetFont(fontSml);
+  
 }
 
 cMainMenuActuator::~cMainMenuActuator()
@@ -557,10 +576,12 @@ cMainMenuActuator::~cMainMenuActuator()
   delete SChannel;
   close(fd_frontend);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
+  if (HasSwitched) {
+    cDevice *myDevice=cDevice::GetDevice(DvbKarte);
+    if (cDevice::GetDevice(OldChannel,0)==myDevice) cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
+    else myDevice->SwitchChannel(OldChannel,true);
+  }
   PosTracker->RestoreUpdate();
-  //if (HasSwitched) {
-     cDevice::GetDevice(DvbKarte)->SwitchChannel(OldChannel,true);
-  //   }
 }
 
 
@@ -614,7 +635,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 if (menuline>0) menuline--;
                 break;
     case kDown: 
-                if (menuline<7) menuline++;
+                if (menuline<9) menuline++;
                 if (menuline>3) menucolumn=1;
                 break;
     case k0 ... k9:  
@@ -728,6 +749,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    break;
                 case MI_FREQUENCY:
                 case MI_SYMBOLRATE:
+                case MI_VPID:
+                case MI_APID:
                    Tune(); 
                    break;
                 case MI_SCANTRANSPONDER:
@@ -784,31 +807,32 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 
 void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
 {
-      int RedLimit=415*30/100;
-      int YellowLimit=max(RedLimit,415*60/100);
-      int ShowSNR = 415*fe_snr/100;
-      int ShowSS =  415*fe_ss/100;
-      const cFont *textfont=cFont::GetFont(fontOsd);
+      int ShowSNR = fe_snr/655;
+      int ShowSS =  fe_ss/655;
       int rowheight=textfont->Height();
       
-#define OSDWIDTH 655
+#define OSDWIDTH 600
+#define BARWIDTH(x)  (OSDWIDTH * x / 100)
+#define REDLIMIT 33
+#define YELLOWLIMIT 66
+#define clrBackground clrGray50
 
       if (paint==0) {
          paint=1;
-         osd = cOsdProvider::NewOsd(40,50);
-         tArea Area[] = 
-           {{0, 0,           OSDWIDTH, rowheight*4-1, 4},   //rows 0..3  signal info
-	    { 0, rowheight*5, OSDWIDTH, rowheight*13-1, 2},  //rows 5..12 menu
-	    { 0, rowheight*13,OSDWIDTH, rowheight*14-1, 2}}; //row  13    prompt/error
-         osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));			
-         osd->Flush();
-
-
+         osd = cOsdProvider::NewOsd(((Setup.OSDWidth - OSDWIDTH) / 2) + Setup.OSDLeft, Setup.OSDTop);
+         if (osd) {
+           tArea Area[] = 
+             {{ 0, 0,           OSDWIDTH-1, rowheight*6-1,  4},  //rows 0..5  signal info
+   	      { 0, rowheight*7, OSDWIDTH-1, rowheight*17-1, 2},  //rows 7..16 menu
+	      { 0, rowheight*17,OSDWIDTH-1, rowheight*18-1, 2}}; //row  17    prompt/error
+           osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
+           osd->Flush();
+        }
       }
       
       if(osd)
       {
-         osd->DrawRectangle(0,0,OSDWIDTH,rowheight*13-1,clrGray50);
+         osd->DrawRectangle(0,0,OSDWIDTH,rowheight*13-1,clrBackground);
          char buf[1024];
          
          int y=0;
@@ -833,39 +857,54 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
              background=clrWhite;
              text=clrBlack;
          }      
-         osd->DrawText(10,y,buf,text,background,textfont,OSDWIDTH,y+rowheight-1,taLeft);
+         osd->DrawText(0,y,buf,text,background,textfont,OSDWIDTH,y+rowheight-1,taLeft);
          
          y+=rowheight;
-         int bartop=y+rowheight/3;
-         int barbottom=y+rowheight-rowheight/3-1;
-         osd->DrawText(10, y, "SNR:",clrWhite,clrTransparent, textfont);
-         osd->DrawRectangle(68, bartop, 68+min(RedLimit,ShowSNR), barbottom, clrRed);
-         if(ShowSNR>RedLimit) osd->DrawRectangle(68+RedLimit, bartop, 68+min(YellowLimit,ShowSNR), barbottom, clrYellow);
-         if(ShowSNR>YellowLimit) osd->DrawRectangle(68+YellowLimit, bartop, 68+ShowSNR, barbottom, clrGreen);
-         sprintf(buf,"%d%% = %.1fdB",fe_snr,snrdB);
-         osd->DrawText(485, y,buf,clrWhite,clrTransparent, textfont);
-         
+         if (ShowSS > 0) {
+           ShowSS=BARWIDTH(ShowSS);
+           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSS), y+rowheight-3, clrRed);
+           if (ShowSS > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSS), y+rowheight-3, clrYellow);
+           if (ShowSS > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSS, y+rowheight-3, clrGreen);
+         }
          y+=rowheight;
-         bartop+=rowheight;
-         barbottom+=rowheight;
-         sprintf(buf,"SS:");
-         osd->DrawText(10, y,"SS:",clrWhite,clrTransparent, textfont);
-         osd->DrawRectangle(68, bartop, 68+min(RedLimit,ShowSS), barbottom, clrRed);
-         if(ShowSS>RedLimit) osd->DrawRectangle(68+RedLimit, bartop, 68+min(YellowLimit,ShowSS), barbottom, clrYellow);
-         if(ShowSS>YellowLimit) osd->DrawRectangle(68+YellowLimit, bartop, 68+ShowSS, barbottom, clrGreen);
-         sprintf(buf,"%d%% = %.1fdBm",fe_ss,ssdBm);
-         osd->DrawText(485, y,buf,clrWhite,clrTransparent, textfont);
+         if (ShowSNR > 0) {
+           ShowSNR=BARWIDTH(ShowSNR);
+           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSNR), y+rowheight-3, clrRed);
+           if (ShowSNR > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSNR), y+rowheight-3, clrYellow);
+           if (ShowSNR > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSNR, y+rowheight-3, clrGreen);
+         }
          
+#define OSDSTATUSWIN_X(col)      ((col == 7) ? 475 : (col == 6) ? 410 : (col == 5) ? 275 : (col == 4) ? 220 : (col == 3) ? 125 : (col == 2) ? 70 : 15)
 #define OSDSTATUSWIN_XC(col,txt) (((col - 1) * OSDWIDTH / 5) + ((OSDWIDTH / 5 - textfont->Width(txt)) / 2))
+
+         y+=rowheight;
+         osd->DrawText(OSDSTATUSWIN_X(1), y, "STR:", clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "%04x", fe_ss);
+         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "(%2d%%)", fe_ss / 655);
+         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(4), y, "BER:", clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "%08x", fe_ber);
+         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrWhite, clrBackground, textfont);
          
          y+=rowheight;
-         osd->DrawText(OSDSTATUSWIN_XC(1,"LOCK"),    y, "LOCK",    (fe_status & FE_HAS_LOCK)    ? clrYellow : clrBlack, clrTransparent, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(2,"SIGNAL"),  y, "SIGNAL",  (fe_status & FE_HAS_SIGNAL)  ? clrYellow : clrBlack, clrTransparent, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(3,"CARRIER"), y, "CARRIER", (fe_status & FE_HAS_CARRIER) ? clrYellow : clrBlack, clrTransparent, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(4,"VITERBI"), y, "VITERBI", (fe_status & FE_HAS_VITERBI) ? clrYellow : clrBlack, clrTransparent, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(5,"SYNC"),    y, "SYNC",    (fe_status & FE_HAS_SYNC)    ? clrYellow : clrBlack, clrTransparent, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(1), y, "SNR:", clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "%04x", fe_snr);
+         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "(%2d%%)", fe_snr / 655);
+         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(4), y, "UNC:", clrWhite, clrBackground, textfont);
+         snprintf(buf, sizeof(buf), "%08x", fe_unc);
+         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrWhite, clrBackground, textfont);
          
-         int left=10;
+         y+=rowheight;
+         osd->DrawText(OSDSTATUSWIN_XC(1,"LOCK"),    y, "LOCK",    (fe_status & FE_HAS_LOCK)    ? clrYellow : clrBlack, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(2,"SIGNAL"),  y, "SIGNAL",  (fe_status & FE_HAS_SIGNAL)  ? clrYellow : clrBlack, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(3,"CARRIER"), y, "CARRIER", (fe_status & FE_HAS_CARRIER) ? clrYellow : clrBlack, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(4,"VITERBI"), y, "VITERBI", (fe_status & FE_HAS_VITERBI) ? clrYellow : clrBlack, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(5,"SYNC"),    y, "SYNC",    (fe_status & FE_HAS_SYNC)    ? clrYellow : clrBlack, clrBackground, textfont);
+         
+         int left=0;
          int pagewidth=OSDWIDTH-left*2;
          int colspace=6;
          int colwidth=(pagewidth+colspace)/3;
@@ -885,7 +924,7 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
              background=clrYellow;
              text=clrBlack;
            } else {
-             background=clrGray50;
+             background=clrBackground;
              text=clrYellow;
            }  
            switch(itemindex) {
@@ -899,21 +938,27 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
                snprintf(buf, sizeof(buf), tr(menucaption[itemindex]));
                break;
              case MI_SYMBOLRATE:
+             case MI_VPID:
+             case MI_APID:
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"%d ", menuvalue[itemindex]);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
                break;
              case MI_SATPOSITION:
-               if (curPosition) snprintf(buf,sizeof(buf), "%s %s: %d",*cSource::ToString(curSource->Code()),curSource->Description(),curPosition->Position()); 
-               else snprintf(buf,sizeof(buf), "%s %s: %s",*cSource::ToString(curSource->Code()),curSource->Description(),tr(dishnopos)); 
+               curwidth-=colwidth;
+               if (curPosition) {
+                 snprintf(buf, sizeof(buf),"%d",curPosition->Position());
+                 osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);                 
+               } else osd->DrawText(x+curwidth,y,tr(dishnopos),text,background,textfont,colwidth,rowheight,taRight);
+               snprintf(buf,sizeof(buf), "%s %s:",*cSource::ToString(curSource->Code()),curSource->Description()); 
                break;  
              default:    
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
            }
            osd->DrawText(x,y,buf,text,background,textfont,curwidth,rowheight,
                curcol==0 ? taDefault : (curcol==1 ? taCenter : taRight));
-           if(itemindex<12) {
+           if(itemindex<FIRST_MI_ONECOLUMN) {
              curcol++;
              x+=colwidth;
              if (curcol>2) {
@@ -943,7 +988,7 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
               osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
               break;
             default:  
-              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrTransparent); 
+              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrBackground); 
           }  
         }
         osd->Flush();
@@ -962,16 +1007,9 @@ void cMainMenuActuator::GetSignalInfo(void)
       usleep(15);
       fe_ss=0;
       CHECK(ioctl(fd_frontend, FE_READ_SIGNAL_STRENGTH, &fe_ss));
-      ssdBm = (logf(((double)fe_ss)/65535)*10.8);
-      fe_ss=fe_ss/655;
       usleep(15);
       fe_snr=0;
       CHECK(ioctl(fd_frontend, FE_READ_SNR, &fe_snr));
-      if (fe_snr>57000)
-       snrdB = (logf((double)fe_snr/6553.5)*10.0);
-      else
-       snrdB = (-3/(logf(fe_snr/65535.0)));
-      fe_snr=fe_snr/655;
       usleep(15);
       fe_unc=0;
       CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
@@ -979,12 +1017,19 @@ void cMainMenuActuator::GetSignalInfo(void)
 
 void cMainMenuActuator::Tune(void)
 {
-      int tmp[2]={OldChannel->Apid(0),0};  //dummy
+      int tmp[2]={menuvalue[MI_APID],0};  //dummy
       char tmp2[1][4]={"eng"}; //dummy
       int tmp3=0; //dummy
-      SChannel->SetPids(OldChannel->Vpid(),OldChannel->Ppid(),&tmp[0],tmp2,&tmp3,tmp2,0);
+      SChannel->SetPids(menuvalue[MI_VPID],0,&tmp[0],tmp2,&tmp3,tmp2,0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
-      if (cDevice::GetDevice(DvbKarte)==cDevice::ActualDevice()) HasSwitched=true;
+      cDevice *myDevice=cDevice::GetDevice(DvbKarte);
+      if (myDevice==cDevice::ActualDevice()) HasSwitched=true;
+      if (HasSwitched) {
+        if (cDevice::GetDevice(SChannel,0)==myDevice) { 
+          cDevice::PrimaryDevice()->SwitchChannel(SChannel, HasSwitched);
+          return;
+        }  
+      }  
       cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
 }
 
