@@ -26,7 +26,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian  
     "",                                          //Hugarian
     "Mou cap a l'est",                           //Catalan
-    "+я №їРСїч",                                 //Russian
+    "На Восток",                                 //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk     
@@ -47,7 +47,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Atura",                                     //Catalan
-    "рСїњ",                                      //Russian
+    "Стоп",                                      //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -68,7 +68,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Mou cap a l'oest",                          //Catalan
-    "+я тяњяђ",                                  //Russian
+    "На Запад",                                  //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -89,7 +89,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Recalcula",                                 //Catalan
-    "ЉѓоѓРУќСяСЫ",                               //Russian
+    "Пересчитать",                               //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -110,7 +110,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Anar a %d",                                 //Catalan
-    "ЉѓоѓћСќ %d",                                //Russian
+    "Перейти на %d",                             //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -131,7 +131,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Memoritza",                                 //Catalan
-    "Tяњї§љќСЫ",                                 //Russian
+    "Запомнить",                                 //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -152,7 +152,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "%d Passos Est",                             //Catalan
-    "%d еяё(ї№) љя №їРСїч",                      //Russian
+    "%d шаг на Восток",                          //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -173,7 +173,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "%d Passos Oest",                            //Catalan
-    "еяё(ї№) љя тяњяђ",                          //Russian
+    "%d шаг на Запад",                           //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -194,7 +194,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Ajusta Lэmit Est",                          //Catalan
-    "ІїРСїУљЪћ њоѓђѓј",                          //Russian
+    "Восточный предел",                          //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -215,7 +215,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Posada a zero",                             //Catalan
-    "",                                          //Russian
+    "Установка нуля",                            //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -236,7 +236,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Ajusta Lэmit Oest",                         //Catalan
-    "TяњяђљЪћ њоѓђѓј",                           //Russian
+    "Западный предел",                           //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -257,7 +257,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Freqќшncia:",                               //Catalan
-    "уяРСїСя:",                                  //Russian
+    "Частота:",                                  //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -278,7 +278,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "SymbolRate:",                               //Catalan
-    "рќ§№. РчїоїРСЫ",                            //Russian
+    "Симв. скорость:",                           //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -341,7 +341,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Escaneja Transponder",                      //Catalan
-    "рќ§№. РчїоїРСЫ",                            //Russian
+    "Сканирование передатчика",                  //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -362,7 +362,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Escaneja SatшlЗlit",                        //Catalan
-    "",                                          //Russian
+    "Сканирование спутника",                     //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -383,7 +383,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Marca canals",                              //Catalan
-    "",                                          //Russian
+    "Пометить каналы",                           //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -404,7 +404,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Desmarca canals",                           //Catalan
-    "",                                          //Russian
+    "Снять пометку",                             //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -425,7 +425,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Esborra canals marcats",                     //Catalan
-    "",                                          //Russian
+    "Удалить помеченное",                        //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -446,7 +446,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Activa Lэmits",                             //Catalan
-    "ІчјЭУќСЫ њоѓђѓјЪ",                          //Russian
+    "Вкл. ограничения",                          //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -467,7 +467,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Desactiva Lэmits",                          //Catalan
-    "+СчјЭУќСЫ њоѓђѓјЪ",                         //Russian
+    "Выкл. ограничения",                         //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -488,7 +488,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Destinaciѓ disc: %d, posiciѓ: %d",          //Catalan
-    "",                                          //Russian
+    "Направление зеркала: %d, позиция %d",       //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -509,7 +509,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Canals trobats: %d, nous: %d",              //Catalan
-    "",                                          //Russian
+    "Найдено каналов: %d, новых: %d",            //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -530,7 +530,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Arribat en posiciѓ",                        //Catalan
-    "",                                          //Russian
+    "Позиция установлена",                       //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -551,7 +551,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Espera motor",                              //Catalan
-    "",                                          //Russian
+    "Ожидание двигателя",                        //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -572,7 +572,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Error motor",                               //Catalan
-    "",                                          //Russian
+    "Ошибка двигателя",                          //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -593,7 +593,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Posiciѓ no ajustada",                       //Catalan
-    "",                                          //Russian
+    "Позиция не задана",                    //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -614,7 +614,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "No posicionat",                             //Catalan
-    "",                                          //Russian
+    "Не установлено",                            //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -635,7 +635,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Arribat a lэmit",                           //Catalan
-    "",                                          //Russian
+    "Зеркало на границе",                        //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -656,7 +656,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Posiciѓ fora dels lэmits",                  //Catalan
-    "",                                          //Russian
+    "Позиция вне допустимых пределов",           //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk  
@@ -677,7 +677,7 @@ const tI18nPhrase Phrases[] = {
     "",                                               //Romanian
     "",                                               //Hugarian
     "Escanejant, premi una tecla per a interrompre",  //Catalan
-    "",                                               //Russian
+    "Сканирование, нажмите любую кнопку для остановки", //Russian
     "",                                               //Croatian
     "",                                               //Eesti
     "",                                               //Dansk
@@ -699,7 +699,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Tarja connectada al motor",                //Catalan
-    "ІяоСя РїѓђќљпљљяЮ Р њїђ№ѓРї§",             //Russian
+    "Карта соединена с двигателем",             //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -720,7 +720,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Temps mэn.refresc pantalla (ms)",          //Catalan
-    "",                                         //Russian
+    "Мин. время обновления экрана (mc)",        //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -741,7 +741,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Estр segur?",                              //Catalan
-    "ІЪ ж№ѓоѓљЪ?",                              //Russian
+    "Вы уверены?",                              //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -762,7 +762,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Actuador",                                 //Catalan
-    "",                                         //Russian
+    "Актуатор",                                 //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -783,7 +783,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Controla un actuador lineal o h-h",        //Catalan
-    "",                                         //Russian
+    "Линейное или гор.-гор. управление актуатором", //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk

@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.1";
+static const char *VERSION        = "1.0.2";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -1194,8 +1194,8 @@ void cMainMenuActuator::Show(void)
     int rowheight=textfont->Height();
     tArea Area[] = 
       {{ 0, 0,           Setup.OSDWidth-1, rowheight*6-1,  4},  //rows 0..5  signal info
-       { 0, rowheight*7, Setup.OSDWidth-1, rowheight*19-1, 4},  //rows 7..18 menu
-       { 0, rowheight*19,Setup.OSDWidth-1, rowheight*20-1, 2}}; //row  19    prompt/error
+       { 0, rowheight*7, Setup.OSDWidth-1, rowheight*19-1, 2},  //rows 7..18 menu
+       { 0, rowheight*19,Setup.OSDWidth-1, rowheight*20-1, 4}}; //row  19    prompt/error
     osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
   } else esyslog("Darn! Couldn't create osd");
   Refresh();  

@@ -1,14 +1,15 @@
-vdr-1.3.20-position-display.diff
+Use the highest version of the patch (xxx) according to your vdr version
+
+vdr-xxx-position-display.diff
   Apply this patch if you want an OSD indication of the dish position while
   it is moving (see the main README file)
 
-vdr-1.3.18-steerable.diff
+vdr-xxx-steerable.diff
   Apply this patch to avoid waiting for a lock after switching channel since
   it doesn't work well if the new channel is on a different satellite (see
-  the main README file). If your vdr is >= 1.3.32 use
-vdr-1.3.32-steerable.diff instead
+  the main README file).
 
-vdr-1.3.18-sort-by-source.diff
+vdr-xxx-sort-by-source.diff
   Apply this patch if you want:
   1) to always see the satellite position in the channels list (so you know
      in advance if the dish is going to move)
@@ -17,7 +18,7 @@ vdr-1.3.18-sort-by-source.diff
      an asterisk in each entry will show that the list is sorted by source)
      README
 
-vdr-1.3.21-Source-dependant-NewChannels-Insertation.diff
+vdr-xxx-Source-dependant-NewChannels-Insertation.diff
   Apply this patch if you want new channels added depending on the satellite
   (if a section "New channels @ xx" already exists, new channels will be put
   there, otherwise a section with the current position will be created). 

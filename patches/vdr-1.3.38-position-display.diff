@@ -1,0 +1,43 @@
+--- menu.c.position-display	2006-01-08 14:53:54.816253831 +0100
++++ menu.c	2006-01-08 15:11:38.220402594 +0100
+@@ -3080,6 +3080,7 @@
+                      }
+     };
+   if (!timeout || lastTime.Elapsed() < (uint64)(Setup.ChannelInfoTime * 1000)) {
++     if (lastTime.Elapsed() > DIRECTCHANNELTIMEOUT) if (cStatus::MsgAlterDisplayChannel(displayChannel)) lastTime.Set(-DIRECTCHANNELTIMEOUT-1);
+      if (!number && group < 0 && channel && channel->Number() != cDevice::CurrentChannel())
+         Refresh(); // makes sure a channel switch through the SVDRP CHAN command is displayed
+      DisplayInfo();
+--- status.c.position-display	2005-12-31 16:10:10.000000000 +0100
++++ status.c	2006-01-08 15:10:27.927293862 +0100
+@@ -112,3 +112,10 @@
+   for (cStatus *sm = statusMonitors.First(); sm; sm = statusMonitors.Next(sm))
+       sm->OsdProgramme(PresentTime, PresentTitle, PresentSubtitle, FollowingTime, FollowingTitle, FollowingSubtitle);
+ }
++
++bool cStatus::MsgAlterDisplayChannel(cSkinDisplayChannel *displayChannel)
++{
++  for (cStatus *sm = statusMonitors.First(); sm; sm = statusMonitors.Next(sm))
++      if (sm->AlterDisplayChannel(displayChannel)) return true;
++  return false;    
++}
+--- status.h.position-display	2005-12-31 16:15:25.000000000 +0100
++++ status.h	2006-01-08 15:10:27.929293439 +0100
+@@ -67,6 +67,9 @@
+                // The OSD displays the single line Text with the current channel information.
+   virtual void OsdProgramme(time_t PresentTime, const char *PresentTitle, const char *PresentSubtitle, time_t FollowingTime, const char *FollowingTitle, const char *FollowingSubtitle) {}
+                // The OSD displays the given programme information.
++  virtual bool AlterDisplayChannel(cSkinDisplayChannel *displayChannel) { return false; }
++               // When channel information is on display the plugin can alter
++               // the display and, by returning true, keep it on screen 
+ public:
+   cStatus(void);
+   virtual ~cStatus();
+@@ -86,6 +89,7 @@
+   static void MsgOsdTextItem(const char *Text,  bool Scroll = false);
+   static void MsgOsdChannel(const char *Text);
+   static void MsgOsdProgramme(time_t PresentTime, const char *PresentTitle, const char *PresentSubtitle, time_t FollowingTime, const char *FollowingTitle, const char *FollowingSubtitle);
++  static bool MsgAlterDisplayChannel(cSkinDisplayChannel *displayChannel);
+   };
+ 
+ #endif //__STATUS_H
