@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.7";
+static const char *VERSION        = "0.0.8";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -40,11 +40,12 @@ enum menuindex {
                    MI_SYMBOLRATE,
                    MI_VPID,
                    MI_APID,
-                   MI_SCANTRANSPONDER
+                   MI_SCANTRANSPONDER,
+                   MI_SCANSATELLITE
   };
 
 #define FIRST_MI_ONECOLUMN MI_SATPOSITION
-#define MAXMENUITEM MI_SCANTRANSPONDER
+#define MAXMENUITEM MI_SCANSATELLITE
 
 
 //Selectable buttons on the plugin menu: captions
@@ -58,7 +59,8 @@ static const char *menucaption[] = {
                                    "Symbolrate:",
                                    "Vpid:",
                                    "Apid:",
-                                   "Scan Transponder"
+                                   "Scan Transponder",
+                                   "Scan Satellite"
                                   };
 #define ENABLELIMITS "Enable Limits"
 #define DISABLELIMITS "Disable Limits"
@@ -70,6 +72,7 @@ static const int menucolwidth[] = {
                                        1, 1, 1,
                                        1, 1, 1, 
                                        1, 1, 1, 
+                                          3,
                                           3,
                                           3,
                                           3,
@@ -89,6 +92,7 @@ static const int menudigits[] = {
                                    5,
                                    4,
                                    4,
+                                   0,
                                    0
                                    };                                  
 
@@ -101,6 +105,7 @@ static const int menudigits[] = {
 #define notpositioned "Not positioned"
 #define atlimits      "Dish at limits"
 #define outsidelimits "Position outside limits"
+#define scanning      "Scanning, press any key to stop"
 
 //Positioning tolerance
 //(for transponder scanning and restore of Setup.UpdateChannels)
@@ -109,6 +114,7 @@ static const int menudigits[] = {
 //Plugin parameters 
 int DvbKarte=0;
 int WestLimit=0;
+unsigned int MinRefresh=250;
 //EastLimit is always 0
 
 //actuator device
@@ -471,6 +477,7 @@ bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
 class cMenuSetupActuator : public cMenuSetupPage {
 private:
   int newDvbKarte;
+  int newMinRefresh;
 protected:
   virtual void Store(void);
 public:
@@ -480,14 +487,89 @@ public:
 cMenuSetupActuator::cMenuSetupActuator(void)
 {
   newDvbKarte=DvbKarte+1;
-  Add(new cMenuEditIntItem( tr("Card, connected with motor"), &newDvbKarte,1,cDevice::NumDevices()));
+  newMinRefresh=MinRefresh;
+  Add(new cMenuEditIntItem( tr("Card connected with motor"), &newDvbKarte,1,cDevice::NumDevices()));
+  Add(new cMenuEditIntItem( tr("Min. screen refresh time (ms)"), &newMinRefresh,10,1000));
 
 }
 
 void cMenuSetupActuator::Store(void)
 {
   SetupStore("DVB-Karte", DvbKarte=newDvbKarte-1);
+  SetupStore("MinRefresh", MinRefresh=newMinRefresh);
 }
+
+// --- cTransponder -----------------------------------------------------------
+//Transponder data for satellite scan
+
+class cTransponder:public cListObject {
+private:
+  int frequency;
+  int srate;
+  char polarization;
+  
+public:
+  cTransponder(void) { frequency=0; }  
+  ~cTransponder();
+  bool Parse(const char *s);
+  int Frequency(void) const { return frequency; }
+  int Srate(void) const { return srate; }
+  char Polarization(void) const { return polarization; }
+  };
+
+
+cTransponder::~cTransponder()
+{
+}  
+
+//I'm too lazy to write my own file reading function, so I use the standard one and
+//will trim later invalid "entries"
+bool cTransponder::Parse(const char *s)
+{
+  int dummy;
+  if (4 != sscanf(s, "%d =%d , %c ,%d ", &dummy, &frequency, &polarization, &srate)) {
+    frequency=0; //hack 
+    } else {
+    if (polarization=='v') polarization='V';
+    if (polarization=='h') polarization='H';
+    if (polarization=='l') polarization='L';
+    if (polarization=='r') polarization='R';
+    if (polarization!='V' && polarization!='H' && polarization!='L' && polarization!='R') frequency=0; //hack
+    }
+  return true; //always, will trim invalid entries later on  
+}
+
+
+// --- cTransponders --------------------------------------------------------
+//All the transponders of the current satellite
+
+class cTransponders : public cConfig<cTransponder> {
+public:
+  void LoadTransponders(int source);
+  };  
+
+void cTransponders::LoadTransponders(int source)
+{
+  cList<cTransponder>::Clear();
+  int satlong = source & cSource::st_Pos;
+  if (!(source & cSource::st_Neg)) satlong=3600-satlong;
+  char buffer[100];
+  snprintf(buffer,sizeof(buffer),"transponders/%04d.ini",satlong);
+  Load(AddDirectory(cPlugin::ConfigDirectory(),buffer));
+  cTransponder *p = First();
+  while(p) {
+    cTransponder *p2=Next(p);
+    if (p->Frequency()==0) Del(p);
+    p=p2;
+  }
+  //*********
+  //p=First();
+  //while(p) {
+  //  printf("freq: %d  pol: %c   sr: %d\n", p->Frequency(), p->Polarization(), p->Srate());
+  //  p=Next(p);
+  //  }
+  //printf("transponder file : %s   count: %d\n", buffer, Count());
+}  
 
 // -- cMainMenuActuator --------------------------------------------------------
 
@@ -503,6 +585,9 @@ private:
   bool LimitsDisabled;
   cSource *curSource;
   cSatPosition *curPosition;
+  cTransponders *Transponders;
+  cTransponder *curtransponder;
+  int transponderindex; 
   int menuvalue[MAXMENUITEM+1];
   char Pol;
   cChannel *OldChannel;
@@ -515,7 +600,13 @@ private:
   uint16_t fe_snr;
   uint32_t fe_ber;
   uint32_t fe_unc;
-
+  cTimeMs *scantime;
+  cTimeMs *refresh;
+  enum sm {
+    SM_NONE,
+    SM_TRANSPONDER,
+    SM_SATELLITE
+    } scanmode;
 public:
   cMainMenuActuator(void);
   ~cMainMenuActuator();
@@ -523,7 +614,7 @@ public:
   virtual eOSState ProcessKey(eKeys Key);
   void DisplaySignalInfoOnOsd(void);
   void GetSignalInfo(void);
-  void Tune(void);
+  void Tune(bool live=true);
 };
 
 
@@ -546,19 +637,27 @@ cMainMenuActuator::cMainMenuActuator(void)
   fd_frontend = open(buffer,O_RDONLY);
   curSource=Sources.Get(OldChannel->Source());
   curPosition=SatPositions.Get(OldChannel->Source());
+  Transponders=new cTransponders();
+  Transponders->LoadTransponders(curSource->Code());
+  menuvalue[MI_SCANSATELLITE]=Transponders->Count();
+  curtransponder=Transponders->First();
+  transponderindex=1;
   if (curPosition) menuvalue[MI_GOTO]=curPosition->Position();
   else menuvalue[MI_GOTO]=0;
   menuvalue[MI_FREQUENCY]=OldChannel->Frequency();
   Pol=OldChannel->Polarization();
   if (Pol=='v') Pol='V';
   if (Pol=='h') Pol='H';
+  if (Pol=='l') Pol='L';
+  if (Pol=='r') Pol='R';
   menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
   menuvalue[MI_VPID]=OldChannel->Vpid();
   menuvalue[MI_APID]=OldChannel->Apid(0);
   actuator_status status;
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
-  needsFastResponse=((status.state == ACM_EAST) || (status.state == ACM_WEST));
+  //(now always, to show signal information more timely)
+  needsFastResponse=true; //((status.state == ACM_EAST) || (status.state == ACM_WEST));
   if (Setup.UseSmallFont == 0) {
     // Dirty hack to force the small fonts...
     Setup.UseSmallFont = 1;
@@ -567,28 +666,40 @@ cMainMenuActuator::cMainMenuActuator(void)
   }
   else
     textfont = cFont::GetFont(fontSml);
-  
+  scanmode=SM_NONE;
+  scantime=new cTimeMs();
+  refresh=new cTimeMs();
+  refresh->Set(-MinRefresh);
 }
 
 cMainMenuActuator::~cMainMenuActuator()
 {
   delete osd;
   delete SChannel;
+  delete Transponders;
+  delete scantime;
+  delete refresh;
   close(fd_frontend);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
-  if (HasSwitched) {
-    cDevice *myDevice=cDevice::GetDevice(DvbKarte);
-    if (cDevice::GetDevice(OldChannel,0)==myDevice) cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
-    else myDevice->SwitchChannel(OldChannel,true);
-  }
   PosTracker->RestoreUpdate();
+  cDevice *myDevice=cDevice::GetDevice(DvbKarte);
+  if (HasSwitched) {
+    if (cDevice::GetDevice(OldChannel,0)==myDevice) {
+      cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
+      return;
+    }  
+  }
+  myDevice->SwitchChannel(OldChannel,true);  
 }
 
 
 void cMainMenuActuator::Show(void)
 {
+   if (refresh->Elapsed()>=MinRefresh) {
+        refresh->Set(); 
         GetSignalInfo();
         DisplaySignalInfoOnOsd();
+   }     
 
 }
 
@@ -606,36 +717,166 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     CHECK(ioctl(fd_actuator, AC_MSTOP));
     errormessage=EM_ATLIMITS;
   }
-  needsFastResponse=(status.state != ACM_IDLE);
+  //needsFastResponse=(status.state != ACM_IDLE);
   if (state == osUnknown) {
   int oldcolumn,oldline;
   oldcolumn=menucolumn;
   oldline=menuline;
+  
+  //force a redraw
+  if (Key!=kNone) refresh->Set(-MinRefresh);
+  
+  //-------------------------------------------
+  //Scanning transponder
+  //-------------------------------------------
+  if(scanmode==SM_TRANSPONDER) {
+      if (Key!=kNone || scantime->Elapsed()>=10000) {
+        scanmode=SM_NONE;
+        Setup.UpdateChannels=0;
+      }
+      Show();
+      return state;
+  }
+  
+  
+  //-------------------------------------------
+  //Scanning satellite
+  //-------------------------------------------
+  if(scanmode==SM_SATELLITE) {
+      bool haslock=true;
+      if (scantime->Elapsed()>=1000 && scantime->Elapsed()<2000) {
+        GetSignalInfo();
+        haslock=fe_status & FE_HAS_LOCK;
+      }     
+      if (!haslock || scantime->Elapsed()>=10000) {
+        curtransponder=Transponders->Next(curtransponder);
+        if(curtransponder) {
+          transponderindex++;
+          menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
+          menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+          menuvalue[MI_VPID]=0;  //FIXME
+          menuvalue[MI_APID]=0;  //FIXME
+          Pol=curtransponder->Polarization();
+          Tune(false);
+          scantime->Set();
+        } else {
+          scanmode=SM_NONE;
+          transponderindex=1;
+          Setup.UpdateChannels=0;
+        }
+      }
+      if (Key!=kNone) {
+        scanmode=SM_NONE;
+        Setup.UpdateChannels=0;
+      }
+      Show();
+      return state;     
+  }      
+  
+  //-------------------------------------------
+  //No scanning, normal key processing
+  //-------------------------------------------
+
   if (Key!=kNone) errormessage=EM_NONE;
   switch(Key) {
     case kLeft:
-                if ((menucolumn!=0) && (menuline<4)) menucolumn--;
-                if (selected==MI_FREQUENCY) Pol='V';
-                if (selected==MI_SATPOSITION) 
-                  if(curSource->Prev()) {
-                    curSource=(cSource *)curSource->Prev();
-                    curPosition=SatPositions.Get(curSource->Code());
-                  }
-                break;
+             switch(selected) {
+                
+                  case MI_FREQUENCY:
+                     switch(Pol) {
+                       case 'R': Pol='L'; break;            
+                       case 'L': Pol='V'; break;            
+                       case 'V': Pol='H'; break;
+                       default : Pol='R';
+                       }
+                     break;
+                   
+                  case MI_SATPOSITION:
+                    {               
+                      cSource *newsource=(cSource *)curSource->Prev();
+                      while(newsource && (newsource->Code() & cSource::st_Mask) != cSource::stSat) newsource=(cSource *)newsource->Prev(); 
+                      if(newsource) {
+                        curSource=newsource;
+                        curPosition=SatPositions.Get(curSource->Code());
+                        Transponders->LoadTransponders(curSource->Code());
+                        menuvalue[MI_SCANSATELLITE]=Transponders->Count();
+                        curtransponder=Transponders->First();
+                        transponderindex=1;
+                      }
+                    }
+                    break;
+                  
+                  case MI_SCANSATELLITE:
+                    {
+                      cTransponder *newtransponder=Transponders->Prev(curtransponder);
+                      if (newtransponder) {
+                        curtransponder=newtransponder;
+                        transponderindex--;
+                      }
+                      if (curtransponder) {
+                        menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
+                        menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                        Pol=curtransponder->Polarization();
+                      }
+                    }
+                    break;
+                  
+                  default:  
+                    if ((menucolumn!=0) && (menuline<4)) menucolumn--;
+             } //switch(selected)  
+             break;
+                
     case kRight:
-                if ((menucolumn!=2) && (menuline<4)) menucolumn++;
-                if (selected==MI_FREQUENCY) Pol='H';
-                if (selected==MI_SATPOSITION) 
-                  if(curSource->Next()) {
-                    curSource=(cSource *)curSource->Next();
-                    curPosition=SatPositions.Get(curSource->Code());
-                  }
-                break;
+             switch(selected) {
+                
+                  case MI_FREQUENCY:
+                     switch(Pol) {
+                       case 'H': Pol='V'; break;            
+                       case 'V': Pol='L'; break;            
+                       case 'L': Pol='R'; break;
+                       default : Pol='H';
+                       }            
+                     break;  
+                   
+                  case MI_SATPOSITION:
+                    {
+                      cSource *newsource=(cSource *)curSource->Next();
+                      while(newsource && (newsource->Code() & cSource::st_Mask) != cSource::stSat) newsource=(cSource *)newsource->Next(); 
+                      if(newsource) {
+                        curSource=newsource;
+                        curPosition=SatPositions.Get(curSource->Code());
+                        Transponders->LoadTransponders(curSource->Code());
+                        menuvalue[MI_SCANSATELLITE]=Transponders->Count();
+                        curtransponder=Transponders->First();
+                        transponderindex=1;
+                      }
+                    }
+                    break;
+                    
+                  case MI_SCANSATELLITE:
+                    {
+                      cTransponder *newtransponder=Transponders->Next(curtransponder);
+                      if (newtransponder) {
+                        curtransponder=newtransponder;
+                        transponderindex++;
+                      }
+                      if (curtransponder) {
+                        menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
+                        menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                        Pol=curtransponder->Polarization();
+                      }
+                    }
+                    break;
+                
+                  default:
+                    if ((menucolumn!=2) && (menuline<4)) menucolumn++;
+             } //switch(selected)    
+             break;
     case kUp:
                 if (menuline>0) menuline--;
                 break;
     case kDown: 
-                if (menuline<9) menuline++;
+                if (menuline<9 || (menuline<10 && menuvalue[MI_SCANSATELLITE]!=0)) menuline++;
                 if (menuline>3) menucolumn=1;
                 break;
     case k0 ... k9:  
@@ -659,7 +900,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    else {   
                      CHECK(ioctl(fd_actuator, AC_MEAST));
                      PosTracker->Track();
-                     needsFastResponse=true;
+                     //needsFastResponse=true;
                    }  
                    break;
                 case MI_HALT:   
@@ -670,7 +911,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    else {   
                      CHECK(ioctl(fd_actuator, AC_MWEST));
                      PosTracker->Track();
-                     needsFastResponse=true;
+                     //needsFastResponse=true;
                    }  
                    break;
                 case MI_RECALC:
@@ -688,7 +929,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (LimitsDisabled || (menuvalue[MI_GOTO]>=0 && menuvalue[MI_GOTO]<=WestLimit)) {
                      CHECK(ioctl(fd_actuator, AC_WTARGET, &menuvalue[MI_GOTO]));
                      PosTracker->Track();
-                     needsFastResponse=true;
+                     //needsFastResponse=true;
                    } else errormessage=EM_OUTSIDELIMITS;
                    break;
                 case MI_STORE:
@@ -710,7 +951,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                        else newpos=status.position+menuvalue[MI_STEPSWEST];
                      CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
                      PosTracker->Track();
-                     needsFastResponse=true;
+                     //needsFastResponse=true;
                    }    
                    break;
                 case MI_ENABLEDISABLELIMITS:
@@ -762,8 +1003,31 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    else {
                      Tune(); 
                      Setup.UpdateChannels=4;
+                     scanmode=SM_TRANSPONDER;
+                     scantime->Set();
                      conf=0;
                    }
+                   break;
+                case MI_SCANSATELLITE:
+                   if(curtransponder) { 
+                     if (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE) {
+                       errormessage=EM_NOTPOSITIONED;
+                       break;
+                     }     
+                     if (conf==0) conf=1;
+                     else {
+                       menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
+                       menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                       menuvalue[MI_VPID]=0;  //FIXME
+                       menuvalue[MI_APID]=0;  //FIXME
+                       Pol=curtransponder->Polarization();
+                       scanmode=SM_SATELLITE;
+                       Tune(); 
+                       Setup.UpdateChannels=4;
+                       scantime->Set();
+                       conf=0;
+                     }
+                   }  
                    break;
                  case MI_SATPOSITION:
                    if (curPosition) {
@@ -771,7 +1035,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      if (LimitsDisabled || (newpos>=0 && newpos<=WestLimit)) {
                        CHECK(ioctl(fd_actuator,AC_WTARGET,&newpos));
                        PosTracker->Track();
-                       needsFastResponse=true;
+                       //needsFastResponse=true;
                      } else errormessage=EM_OUTSIDELIMITS; 
                    } 
                    break;
@@ -823,8 +1087,8 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
          if (osd) {
            tArea Area[] = 
              {{ 0, 0,           OSDWIDTH-1, rowheight*6-1,  4},  //rows 0..5  signal info
-   	      { 0, rowheight*7, OSDWIDTH-1, rowheight*17-1, 2},  //rows 7..16 menu
-	      { 0, rowheight*17,OSDWIDTH-1, rowheight*18-1, 2}}; //row  17    prompt/error
+   	      { 0, rowheight*7, OSDWIDTH-1, rowheight*18-1, 2},  //rows 7..17 menu
+	      { 0, rowheight*18,OSDWIDTH-1, rowheight*19-1, 2}}; //row  18    prompt/error
            osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
            osd->Flush();
         }
@@ -953,6 +1217,16 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
                } else osd->DrawText(x+curwidth,y,tr(dishnopos),text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf,sizeof(buf), "%s %s:",*cSource::ToString(curSource->Code()),curSource->Description()); 
                break;  
+             case MI_SCANSATELLITE:
+               if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
+                 background=clrBackground;
+                 text=clrBackground;
+               }
+               curwidth-=colwidth;
+               snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
+               osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
+               snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
+               break;
              default:    
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
            }
@@ -988,7 +1262,14 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
               osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
               break;
             default:  
-              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrBackground); 
+              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrTransparent);
+              if(scanmode!=SM_NONE) {
+                int barwidth;
+                if (scanmode==SM_TRANSPONDER) barwidth=OSDWIDTH*scantime->Elapsed()/10000;
+                else barwidth=OSDWIDTH*(10000*(transponderindex-1)+scantime->Elapsed())/10000/menuvalue[MI_SCANSATELLITE];
+                osd->DrawRectangle(left,y,barwidth,y+rowheight-1,clrBlue);
+                osd->DrawText(left,y,tr(scanning),clrWhite,clrTransparent,textfont,OSDWIDTH-left-1,rowheight,taCenter);
+              }
           }  
         }
         osd->Flush();
@@ -1015,17 +1296,19 @@ void cMainMenuActuator::GetSignalInfo(void)
       CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
 }
 
-void cMainMenuActuator::Tune(void)
+void cMainMenuActuator::Tune(bool live)
 {
-      int tmp[2]={menuvalue[MI_APID],0};  //dummy
-      char tmp2[1][4]={"eng"}; //dummy
-      int tmp3=0; //dummy
-      SChannel->SetPids(menuvalue[MI_VPID],0,&tmp[0],tmp2,&tmp3,tmp2,0);
+      int Apids[MAXAPIDS + 1] = { 0 };
+      int Dpids[MAXDPIDS + 1] = { 0 };
+      char ALangs[MAXAPIDS+1][4]={ "" };
+      char DLangs[MAXDPIDS+1][4]={ "" };
+      Apids[0]=menuvalue[MI_APID];
+      SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs,0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
       cDevice *myDevice=cDevice::GetDevice(DvbKarte);
       if (myDevice==cDevice::ActualDevice()) HasSwitched=true;
-      if (HasSwitched) {
-        if (cDevice::GetDevice(SChannel,0)==myDevice) { 
+      if (HasSwitched && live) {
+        if (cDevice::GetDevice(SChannel,0)==myDevice) {
           cDevice::PrimaryDevice()->SwitchChannel(SChannel, HasSwitched);
           return;
         }  
@@ -1049,6 +1332,7 @@ public:
   virtual bool ProcessArgs(int argc, char *argv[]);
   virtual bool Initialize(void);
   virtual bool Start(void);
+  virtual void Stop(void);
   virtual void Housekeeping(void);
   virtual const char *MainMenuEntry(void) { return tr(MAINMENUENTRY); }
   virtual cOsdObject *MainMenuAction(void);
@@ -1073,6 +1357,10 @@ cPluginActuator::cPluginActuator(void)
 cPluginActuator::~cPluginActuator()
 {
   // Clean up after yourself!
+}
+
+void cPluginActuator::Stop(void)
+{
   delete statusMonitor;
   delete PosTracker;
   close(fd_actuator);
@@ -1128,6 +1416,7 @@ bool cPluginActuator::SetupParse(const char *Name, const char *Value)
 {
   // Parse your own setup parameters and store their values.
   if      (!strcasecmp(Name, "DVB-Karte"))      DvbKarte = atoi(Value);
+  else if (!strcasecmp(Name, "MinRefresh"))     MinRefresh = atoi(Value);
   else if (!strcasecmp(Name, "WestLimit"))      WestLimit = atoi(Value);
   else
     return false;

@@ -346,6 +346,27 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
   },
+  { "Scan Satellite",
+    "",// TODO
+    "",// TODO
+    "Scansione Satellite",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Escaneo Satélite",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Escaneja Satèl·lit",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+  },
   { "Enable Limits",
     "Limits ein",
     "",// TODO
@@ -556,8 +577,29 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "",// TODO
   },
+  { "Scanning, press any key to stop",
+    "",// TODO
+    "",// TODO
+    "Scansionando, premi un tasto per interrompere",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Escaneando, pulse una tecla para interrumpir",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Escanejant, premi una tecla per a interrompre",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+  },
 //Setup
-  { "Card, connected with motor",
+  { "Card connected with motor",
     "Karte, die mit Motor verbunden ist ",
     "",// TODO
     "Scheda collegata al motore",
@@ -574,6 +616,27 @@ const tI18nPhrase Phrases[] = {
     "",// TODO
     "Tarja connectada al motor",
     "¦ïÞÁï À÷óòüùßùùïÎ À ú÷òðóÀ÷ý",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+  },
+  { "Min. screen refresh time (ms)",
+    "",// TODO 
+    "",// TODO
+    "Tempo min.aggiornam.schermo (ms)",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Tiempo mín.refresco pantalla (ms)",
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "",// TODO
+    "Temps mín.refresc pantalla (ms)",
+    "",// TODO
     "",// TODO
     "",// TODO
     "",// TODO

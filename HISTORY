@@ -1,5 +1,19 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2005-02-13: Version 0.0.8
+- Implement new (in vdr-1.3.20) method Stop
+- Removed the note about the dxr3 shutdown problem (saving the dish position
+  early with the Stop method makes the problem irrelevant)
+- Skip non satellite sources in main menu
+- Changed pid assignment in cMainMenuActuator::Tune() to (hopefully) avoid
+  problems with  the new audio pid management in vdr
+- Added "Scan satellite" option (idea shamelessly stolen from
+  kikko77@altervista.org, author of the channelscan plugin) 
+- Changed the 'position-display' patch (adapted for vdr-1.3.20 and
+  avoids overwriting the osd of the newly entered channel number if the
+   dish is moving) 
+- New parameter MinRefresh, to avoid screen artifacts with a dxr3
+ 
 2005-02-06: Version 0.0.7
 - Added the possibility to specify vpid and apid when tuning to a
   transponder.

@@ -77,6 +77,7 @@ dist:
 	@mkdir $(TMPDIR)/$(ARCHIVE)
 	@cp -a * $(TMPDIR)/$(ARCHIVE)
 	@make -C $(TMPDIR)/$(ARCHIVE) clean
+	@-rm -f $(TMPDIR)/$(ARCHIVE)/module/actuator.ko*
 	@tar czf $(PACKAGE).tgz -C $(TMPDIR) $(ARCHIVE)
 	@-rm -rf $(TMPDIR)/$(ARCHIVE)
 	@echo Distribution package created as $(PACKAGE).tgz
