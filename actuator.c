@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.3";
+static const char *VERSION        = "1.0.4";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -576,6 +576,7 @@ void cTransponders::LoadTransponders(int source)
 
 class cMainMenuActuator : public cOsdObject {
 private:
+  cDevice *ActuatorDevice;
   int digits,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
   enum em {
     EM_NONE,
@@ -650,7 +651,12 @@ public:
 
 cMainMenuActuator::cMainMenuActuator(void)
 {
-  OldChannel=Channels.GetByNumber(cDevice::GetDevice(DvbKarte)->CurrentChannel());
+  ActuatorDevice=NULL;
+  for (int i=0; i<cDevice::NumDevices() && ActuatorDevice==NULL; i++)
+    if (cDevice::GetDevice(i)->CardIndex()==DvbKarte) 
+      ActuatorDevice=cDevice::GetDevice(i);
+  if (ActuatorDevice==NULL) return;
+  OldChannel=Channels.GetByNumber(ActuatorDevice->CurrentChannel());
   SChannel=new cChannel();
   repeat=HasSwitched=false;
   conf=0;
@@ -687,7 +693,11 @@ cMainMenuActuator::cMainMenuActuator(void)
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
   //(now always, to show signal information more timely)
+#if APIVERSNUM < 10500
   needsFastResponse=true; //((status.state == ACM_EAST) || (status.state == ACM_WEST));
+#else /* VDR_1_5 */
+  SetNeedsFastResponse(true); //((status.state == ACM_EAST) || (status.state == ACM_WEST));
+#endif   
   if (Setup.UseSmallFont == 0) {
     // Dirty hack to force the small fonts...
     Setup.UseSmallFont = 1;
@@ -726,6 +736,7 @@ cMainMenuActuator::cMainMenuActuator(void)
 
 cMainMenuActuator::~cMainMenuActuator()
 {
+  if (ActuatorDevice == NULL) return;
   delete osd;
   delete SChannel;
   delete Transponders;
@@ -740,14 +751,17 @@ cMainMenuActuator::~cMainMenuActuator()
   CHECK(ioctl(fd_actuator, AC_MSTOP));
   PosTracker->RestoreUpdate();
   if (OldChannel) {
-    cDevice *myDevice=cDevice::GetDevice(DvbKarte);
     if (HasSwitched) {
-      if (cDevice::GetDevice(OldChannel,0)==myDevice) {
+      if (cDevice::GetDevice(OldChannel,0
+#if APIVERSNUM >= 10500      
+      ,true
+#endif      
+         )==ActuatorDevice) {
         cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
         return;
       }  
     }
-    myDevice->SwitchChannel(OldChannel,true);
+    ActuatorDevice->SwitchChannel(OldChannel,true);
   }  
 }
 
@@ -764,6 +778,10 @@ void cMainMenuActuator::Refresh(void)
 
 eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 {
+  if (ActuatorDevice == NULL) {
+    Skins.Message(mtError,tr("Card not available"));
+    return osEnd;
+  }  
   int selected=Selected();
   int newpos;
   eOSState state = osContinue;
@@ -1182,6 +1200,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 
 void cMainMenuActuator::Show(void)
 {
+  osd = NULL;
+  if (ActuatorDevice == NULL) return;
   osd = cOsdProvider::NewOsd(Setup.OSDLeft, Setup.OSDTop);
   if (osd) {
     int rowheight=textfont->Height();
@@ -1440,15 +1460,18 @@ void cMainMenuActuator::Tune(bool live)
       Apids[0]=menuvalue[MI_APID];
       SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs,0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
-      cDevice *myDevice=cDevice::GetDevice(DvbKarte);
-      if (myDevice==cDevice::ActualDevice()) HasSwitched=true;
+      if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;
       if (HasSwitched && live) {
-        if (cDevice::GetDevice(SChannel,0)==myDevice) {
+        if (cDevice::GetDevice(SChannel,0
+  #if APIVERSNUM >= 10500      
+        ,true
+  #endif      
+           )==ActuatorDevice) {
           cDevice::PrimaryDevice()->SwitchChannel(SChannel, HasSwitched);
           return;
         }  
       }  
-      cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
+      ActuatorDevice->SwitchChannel(SChannel, HasSwitched);
 }
 
 
@@ -1462,16 +1485,16 @@ void cMainMenuActuator::StartScan(bool live)
       SFilter=new SdtFilter(PFilter);
       if (live) SdtFilter::ResetFound();
       PFilter->SetSdtFilter(SFilter);
-      cDevice::GetDevice(DvbKarte)->AttachFilter(SFilter);
-      cDevice::GetDevice(DvbKarte)->AttachFilter(PFilter);
+      ActuatorDevice->AttachFilter(SFilter);
+      ActuatorDevice->AttachFilter(PFilter);
   
 }
 
 void cMainMenuActuator::StopScan(void)
 {
      printf("     Scanned in %lld ms, found %d channels (new %d)\n", scantime->Elapsed(), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
-     cDevice::GetDevice(DvbKarte)->Detach(PFilter);
-     cDevice::GetDevice(DvbKarte)->Detach(SFilter);
+     ActuatorDevice->Detach(PFilter);
+     ActuatorDevice->Detach(SFilter);
      delete PFilter;
      delete SFilter;
 }

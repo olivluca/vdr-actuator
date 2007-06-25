@@ -12,9 +12,16 @@ a debouncing circuit
 I'm not a kernel expert, so this module is probably bug ridden.
 I also didn't care for backwards compatibility: the module only builds under
 kernel 2.6.
-IF YOUR KERNEL IS >= 2.6.13 apply the apply_for_kernel_2.6.13.patch (it has
-been provided by Frank Welter <frank.welter at skynet dot be> and Monchenko
-Vladimir <bob at globall ru>).
+
+IF YOUR KERNEL IS >= 2.6.13 and <2.6.15 apply the
+apply_for_kernel_2.6.13.patch (it has been provided by Frank Welter
+<frank.welter at skynet dot be> and Monchenko Vladimir <bob at globall ru>).
+
+IF YOUR KERNEL IS >= 2.6.15 appy the apply_for_kernel_2.6.15.patch instead
+(provided originally by Monchenko Vladimir <bob at globall ru> as a patch to
+the previous patch and correctly rediffed by Marco Franceschetti <ordaz at
+quipo dot it>).
+
 It should be possible to build the module by simply typing "make", provided
 you have the kernel source for the currently running kernel *and*
 /lib/modules/$(uname -r)/build points to the source tree (this is the case

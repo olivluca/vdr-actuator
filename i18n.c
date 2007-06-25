@@ -809,5 +809,26 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Eesti
     "",                                         //Dansk
   },
+  { "Card not available",                       //English
+    "",                                         //German
+    "",                                         //Slovenian
+    "Scheda non disponibile",                   //Italian
+    "",                                         //Dutch
+    "",                                         //Portugues
+    "",                                         //French
+    "",                                         //Norwegian
+    "",                                         //Finnish
+    "",                                         //Polish
+    "Tarjeta no disponible",                    //Spanish
+    "",                                         //Greek
+    "",                                         //Swedish
+    "",                                         //Romanian
+    "",                                         //Hugarian
+    "Tarja no disponible",                      //Catalan
+    "",                                         //Russian
+    "",                                         //Croatian
+    "",                                         //Eesti
+    "",                                         //Dansk
+  },
   { NULL }
   };

@@ -1,5 +1,12 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2007-06-24: Version 1.0.4
+- check the CardIndex to identify the selected card in the main menu instead
+  of relying on cDevice::GetDevice(index)
+- added a note in README to clarify that if you select card 1 it corresponds
+  to /dev/dvb/adapter0, 2 to /dev/dvb/adapter1 and so on
+- adapted for the experimental version of vdr (1.5.X)
+
 2006-04-31: Version 1.0.3
 - use k_Repeat for up,down,left and right
 - update Makefile for compatibility with vdr >= 1.3.47
