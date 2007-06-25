@@ -25,28 +25,20 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.3";
+static const char *VERSION        = "0.0.4";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
 //Selectable buttons on the plugin menu: indexes
 enum menuindex {
-  MI_DRIVEEAST=0,
-  MI_HALT,
-  MI_DRIVEWEST,
-  MI_RECALC,
-  MI_GOTO,
-  MI_STORE,
-  MI_STEPSEAST,
-  MI_ENABLEDISABLELIMITS,
-  MI_STEPSWEST,
-  MI_SETEASTLIMIT,
-  MI_SETZERO,
-  MI_SETWESTLIMIT,
-  MI_SATPOSITION,
-  MI_FREQUENCY,
-  MI_SYMBOLRATE,
-  MI_SCANTRANSPONDER
+  MI_DRIVEEAST=0,  MI_HALT,                MI_DRIVEWEST,
+  MI_RECALC,       MI_GOTO,                MI_STORE,
+  MI_STEPSEAST,    MI_ENABLEDISABLELIMITS, MI_STEPSWEST,
+  MI_SETEASTLIMIT, MI_SETZERO,             MI_SETWESTLIMIT,
+                   MI_SATPOSITION,
+                   MI_FREQUENCY,
+                   MI_SYMBOLRATE,
+                   MI_SCANTRANSPONDER
   };
 
 #define MAXMENUITEM MI_SCANTRANSPONDER
@@ -67,20 +59,17 @@ static const char *menucaption[] = {
 #define DISABLELIMITS "Disable Limits"
                                   
                                   
-//Rows and columns of the menu buttons                                  
-#define IROW 0
-#define ICOL 1
-#define IWIDTH 2
-static const int menurowcol[][3] = { 
-                                       {0,0,1}, {0,1,1}, {0,2,1},
-                                       {1,0,1}, {1,1,1}, {1,2,1},
-                                       {2,0,1}, {2,1,1}, {2,2,1},
-                                       {3,0,1}, {3,1,1}, {3,2,1},
-                                       {4,0,3},
-                                       {5,0,3},
-                                       {6,0,3},
-                                       {7,0,3}
-                                      };                                   
+//Relative width (in thirds of the osd width) of each menu entry
+static const int menucolwidth[] = { 
+                                       1, 1, 1,
+                                       1, 1, 1,
+                                       1, 1, 1, 
+                                       1, 1, 1, 
+                                          3,
+                                          3,
+                                          3,
+                                          3
+                                };                                   
                                   
 //Number of allowed input digits for each menu item                                  
 static const int menudigits[] = {
@@ -104,7 +93,8 @@ static const int menudigits[] = {
 #define atlimits      "Dish at limits"
 #define outsidelimits "Position outside limits"
 
-//Positioning tolerance (for transponder scanning)
+//Positioning tolerance
+//(for transponder scanning and restore of Setup.UpdateChannels)
 #define POSTOLERANCE 5
 
 //Plugin parameters 
@@ -115,7 +105,7 @@ int WestLimit=0;
 //actuator device
 int fd_actuator;
 
-//how to access SetupStore inside the main menu?
+//how to access SetupStore inside the main menu without this kludge?
 cPlugin *theplugin;
 
 // --- cSatPosition -----------------------------------------------------------
@@ -243,6 +233,7 @@ cPosTracker::cPosTracker(void):cThread("Position Tracker")
         if (fscanf(f,"%d",&newpos)==1) { 
           isyslog("Read position %d from %s",newpos,positionfilename); 
           CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+          LastPositionSaved=newpos;
         } else esyslog("couldn't read dish position from %s",positionfilename);
         fclose(f);
       } else esyslog("Couldn't open file %s: %s",positionfilename,strerror(errno));
@@ -271,8 +262,7 @@ cPosTracker::~cPosTracker(void)
   if (fd_actuator) {
     stopit=true;
     trackwait->Broadcast();
-    //Cancel(5);
-    sleep(5);
+    Cancel(5);
   }
 }
 
@@ -293,11 +283,9 @@ void cPosTracker::Track(int NewTarget)
   updatemutex.Lock();
   if (restoreupdate) { 
     target=NewTarget;
-    if (update==-1) {
-      update=Setup.UpdateChannels;
-      Setup.UpdateChannels=0;
-    }
+    if (update==-1) update=Setup.UpdateChannels;
   }  
+  Setup.UpdateChannels=0;
   updatemutex.Unlock();
   if (fd_actuator) trackwait->Broadcast();
 }
@@ -306,10 +294,8 @@ void cPosTracker::SaveUpdate(void)
 {
   updatemutex.Lock();
   restoreupdate=false;
-  if (update==-1) {
-    update=Setup.UpdateChannels;
-    Setup.UpdateChannels=0;
-  }  
+  if (update==-1) update=Setup.UpdateChannels;
+  Setup.UpdateChannels=0;
   target=-1;
   updatemutex.Unlock();
 }
@@ -336,6 +322,7 @@ void cPosTracker::Action(void)
       CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
       SavePos(status.position);
       close(fd_actuator);
+      printf("actuator: saved dish position\n");
       return; 
     }
     while (true) {
@@ -363,9 +350,9 @@ cPosTracker *PosTracker;
 
 class cStatusMonitor:public cStatus {
 private:
-  bool transfer;
   unsigned int last_state_shown;
   int last_position_shown;
+  bool transfer;
 protected:
   virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber);
   virtual bool AlterDisplayChannel(cSkinDisplayChannel *displayChannel);
@@ -375,42 +362,58 @@ public:
 
 cStatusMonitor::cStatusMonitor()
 {
-  transfer=false;
   last_state_shown=ACM_IDLE;
+  transfer=false;
 }
 
 void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
 {
   actuator_status status;
   if (ChannelNumber) {
-     if ((Device!=cDevice::PrimaryDevice()) || (cDevice::ActualDevice()==cDevice::PrimaryDevice()) || (cDevice::PrimaryDevice()->cDevice::HasProgramme()) && transfer) {
-     cChannel channel = *Channels.GetByNumber(ChannelNumber);
-     dsyslog("Checking satellite");
-     //if (DvbKarte==Device->CardIndex())
-     cSatPosition *p=SatPositions.Get(channel.Source());
-     int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
-     if (p) {
-       target=p->Position();
-       dsyslog("New sat position: %i",target);
-       if (target>=0 && target<=WestLimit) {
-         CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-         if (status.position!=target || status.target!=target)  {
-           dsyslog("Satellite changed");
-           CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
-         }  
-       } else {
-         Skins.Message(mtError, tr(outsidelimits));
-         target=-1;
-       }  
-     } else Skins.Message(mtError, tr(dishnopos));
-     if (target==-1) CHECK(ioctl(fd_actuator,AC_MSTOP));
-     if (PosTracker) PosTracker->Track(target);
-          
-     }
-       if ((cDevice::ActualDevice()!=cDevice::PrimaryDevice()) && (Device==cDevice::PrimaryDevice()) )
-        transfer=true;
-       if ((cDevice::ActualDevice()==cDevice::PrimaryDevice()) && (Device==cDevice::PrimaryDevice())) transfer=false;
-   }
+    //
+    //vdr will call ChannelSwitch for the primary device even if it isn't
+    //tuning the new channel (in transfer mode, the channel will be tuned by
+    //another card, which will also call this method).  So:
+    // - if the device is not the primary device it has really tuned to the
+    //   channel
+    // - if the primary device is also the actual device, it also
+    //   tuned to the channel
+    // - now the difficult part: HasProgramme() is true when the primary
+    //   device is in transfer mode and it is switched. Unfortunately is also
+    //   true when the card first enter transfer mode, so the "transfer" 
+    //   variable is used to remember that the device is already in transfer 
+    //   mode (i.e. we ignore the first call when it is entering transfer mode)
+    //
+    if ((Device!=cDevice::PrimaryDevice()) || 
+        (cDevice::ActualDevice()==cDevice::PrimaryDevice()) || 
+        (cDevice::PrimaryDevice()->HasProgramme()) && transfer) {
+      if (DvbKarte==Device->CardIndex()) { 
+        cChannel channel = *Channels.GetByNumber(ChannelNumber);
+        //dsyslog("Checking satellite");
+        cSatPosition *p=SatPositions.Get(channel.Source());
+        int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
+        if (p) {
+          target=p->Position();
+          //dsyslog("New sat position: %i",target);
+          if (target>=0 && target<=WestLimit) {
+            CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+            if (status.position!=target || status.target!=target)  {
+              //dsyslog("Satellite changed");
+              CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
+            }  
+          } else {
+            Skins.Message(mtError, tr(outsidelimits));
+            target=-1;
+          }  
+        } else Skins.Message(mtError, tr(dishnopos));
+        if (target==-1) CHECK(ioctl(fd_actuator,AC_MSTOP));
+        if (PosTracker) PosTracker->Track(target);
+      }  
+    }
+    //here we remember if the primary device is already in transfer mode
+    if (Device==cDevice::PrimaryDevice())
+      transfer=cDevice::ActualDevice()!=cDevice::PrimaryDevice();
+  }
 }
 
 bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
@@ -453,77 +456,6 @@ bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
 
 }
 
-// --- cMenuEditIntpItem ----------------------------------------------------
-
-class cMenuEditIntpItem : public cMenuEditIntItem {
-protected:
-  virtual void Set(void);
-  const char *falseString, *trueString;
-  int *value2;
-public:
-  cMenuEditIntpItem(const char *Name, int *Value, int Min = 0, int Max = INT_MAX, int *Value2=0, const char *FalseString = "", const char *TrueSting = NULL);
-  virtual eOSState ProcessKey(eKeys Key);
-};
-
-void cMenuEditIntpItem::Set(void)
-{
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%d.%d %s", *value/10, *value % 10, *value2 ? trueString : falseString);
-  SetValue(buf);
-}
-
-cMenuEditIntpItem::cMenuEditIntpItem(const char *Name, int *Value, int Min, int Max,int *Value2, const char *FalseString,const char *TrueString):cMenuEditIntItem(Name, Value, Min, Max)
-{
-  value = Value;
-  value2= Value2;
-  trueString = TrueString;
-  falseString = FalseString;
-  min = Min;
-  max = Max;
-  Set();
-}
-
-eOSState cMenuEditIntpItem::ProcessKey(eKeys Key)
-{
-  eOSState state = cMenuEditItem::ProcessKey(Key);
-
-  if (state == osUnknown) {
-     int newValue = *value;
-     int newValue2= *value2;
-     Key = NORMALKEY(Key);
-     switch (Key) {
-       case kNone: break;
-       case k0 ... k9:
-            if (fresh) {
-               *value = 0;
-               fresh = false;
-               }
-            newValue = *value * 10 + (Key - k0);
-            break;
-       case kLeft: // TODO might want to increase the delta if repeated quickly?
-            newValue2 = 0;
-            fresh = true;
-            break;
-       case kRight:
-            newValue2 = 1;
-            fresh = true;
-            break;
-       default:
-            if (*value < min) { *value = min; Set(); }
-            if (*value > max) { *value = max; Set(); }
-            return state;
-       }
-     if ((!fresh || min <= newValue) && newValue <= max) {
-        *value = newValue;
-        *value2 = newValue2;
-        Set();
-        }
-     state = osContinue;
-     }
-  return state;
-}
-
-
 // --- cMenuSetupActuator ------------------------------------------------------
 
 class cMenuSetupActuator : public cMenuSetupPage {
@@ -561,10 +493,10 @@ private:
   bool LimitsDisabled;
   cSource *curSource;
   cSatPosition *curPosition;
-  int menuvalue[15];
-  char *Pol;
+  int menuvalue[MAXMENUITEM+1];
+  char Pol;
   cChannel *OldChannel;
-  cChannel Channel;
+  cChannel *SChannel;
   cOsd *osd;
   tColor color;
   fe_status_t fe_status;
@@ -582,13 +514,14 @@ public:
   virtual eOSState ProcessKey(eKeys Key);
   void DisplaySignalInfoOnOsd(void);
   void GetSignalInfo(void);
-  bool Signal(int Frequenz, char *Pol, int Symbolrate);
+  void Tune(void);
 };
 
 
 cMainMenuActuator::cMainMenuActuator(void)
 {
   OldChannel=Channels.GetByNumber(cDevice::GetDevice(DvbKarte)->CurrentChannel());
+  SChannel=new cChannel();
   repeat=HasSwitched=false;
   conf=0;
   errormessage=EM_NONE;
@@ -601,17 +534,16 @@ cMainMenuActuator::cMainMenuActuator(void)
   PosTracker->SaveUpdate();
   static char buffer[PATH_MAX];
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
-  fd_frontend = open(buffer,0);
-  cChannel *Channel=Channels.GetByNumber(cDevice::GetDevice(DvbKarte)->CurrentChannel(),0);
-  curSource=Sources.Get(Channel->Source());
-  curPosition=SatPositions.Get(Channel->Source());
+  fd_frontend = open(buffer,O_RDONLY);
+  curSource=Sources.Get(OldChannel->Source());
+  curPosition=SatPositions.Get(OldChannel->Source());
   if (curPosition) menuvalue[MI_GOTO]=curPosition->Position();
   else menuvalue[MI_GOTO]=0;
-  menuvalue[MI_FREQUENCY]=(*Channel).Frequency();
-  if ((*Channel).Polarization() == 'v' || (*Channel).Polarization() == 'V')
-      Pol="V";
-   else Pol="H";
-  menuvalue[MI_SYMBOLRATE]=(*Channel).Srate();
+  menuvalue[MI_FREQUENCY]=OldChannel->Frequency();
+  Pol=OldChannel->Polarization();
+  if (Pol=='v') Pol='V';
+  if (Pol=='h') Pol='H';
+  menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
   actuator_status status;
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
@@ -621,6 +553,7 @@ cMainMenuActuator::cMainMenuActuator(void)
 cMainMenuActuator::~cMainMenuActuator()
 {
   delete osd;
+  delete SChannel;
   close(fd_frontend);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
   PosTracker->RestoreUpdate();
@@ -660,7 +593,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   switch(Key) {
     case kLeft:
                 if ((menucolumn!=0) && (menuline<4)) menucolumn--;
-                if (selected==MI_FREQUENCY) Pol="V";
+                if (selected==MI_FREQUENCY) Pol='V';
                 if (selected==MI_SATPOSITION) 
                   if(curSource->Prev()) {
                     curSource=(cSource *)curSource->Prev();
@@ -669,7 +602,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 break;
     case kRight:
                 if ((menucolumn!=2) && (menuline<4)) menucolumn++;
-                if (selected==MI_FREQUENCY) Pol="H";
+                if (selected==MI_FREQUENCY) Pol='H';
                 if (selected==MI_SATPOSITION) 
                   if(curSource->Next()) {
                     curSource=(cSource *)curSource->Next();
@@ -677,14 +610,11 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                   }
                 break;
     case kUp:
-                if (menuline!=0) menuline--;
+                if (menuline>0) menuline--;
                 break;
     case kDown: 
-                if (menuline<3) menuline++;
-                else if (menuline>=3 && menuline<7) {
-                  menuline++;
-                  menucolumn=1;
-                  }
+                if (menuline<7) menuline++;
+                if (menuline>3) menucolumn=1;
                 break;
     case k0 ... k9:  
                 if (selected<=MAXMENUITEM) {
@@ -797,7 +727,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    break;
                 case MI_FREQUENCY:
                 case MI_SYMBOLRATE:
-                   Signal(menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE]); 
+                   Tune(); 
                    break;
                 case MI_SCANTRANSPONDER:
                    if (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE) {
@@ -806,15 +736,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    }     
                    if (conf==0) conf=1;
                    else {
+                     Tune(); 
                      Setup.UpdateChannels=4;
-                     cChannel *SChannel= new cChannel; // OldChannel;
-                     int tmp=OldChannel->Apid1();
-                     char tmp2[1][4]={"deu"};
-                     SChannel->SetPids(OldChannel->Vpid(),OldChannel->Ppid(),&tmp,tmp2,&tmp,tmp2,OldChannel->Tpid());
-                     SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],*Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO,false);
-                     if (cDevice::GetDevice(DvbKarte)==cDevice::ActualDevice())
-                        HasSwitched=true;
-                     cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
                      conf=0;
                    }
                    break;
@@ -869,18 +792,19 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
       
 #define OSDWIDTH 655
 
-if (paint==0) {
-        paint=1;
-      osd = cOsdProvider::NewOsd(40,50);
-         tArea Area[] =    {{0, 0,           OSDWIDTH, rowheight*4-1, 4},   //rows 0..3  signal info
-			   { 0, rowheight*5, OSDWIDTH, rowheight*13-1, 2},  //rows 5..12 menu
-			   { 0, rowheight*13,OSDWIDTH, rowheight*14-1, 2}}; //row  13    prompt/error
-	 osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));			
-;
-	 osd->Flush();
+      if (paint==0) {
+         paint=1;
+         osd = cOsdProvider::NewOsd(40,50);
+         tArea Area[] = 
+           {{0, 0,           OSDWIDTH, rowheight*4-1, 4},   //rows 0..3  signal info
+	    { 0, rowheight*5, OSDWIDTH, rowheight*13-1, 2},  //rows 5..12 menu
+	    { 0, rowheight*13,OSDWIDTH, rowheight*14-1, 2}}; //row  13    prompt/error
+         osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));			
+         osd->Flush();
 
 
-}
+      }
+      
       if(osd)
       {
          osd->DrawRectangle(0,0,OSDWIDTH,rowheight*13-1,clrGray50);
@@ -909,7 +833,6 @@ if (paint==0) {
              text=clrBlack;
          }      
          osd->DrawText(10,y,buf,text,background,textfont,OSDWIDTH,y+rowheight-1,taLeft);
-         
          
          y+=rowheight;
          int bartop=y+rowheight/3;
@@ -956,7 +879,7 @@ if (paint==0) {
          int itemindex;
          int x=left;
          for (itemindex=0; itemindex<=MAXMENUITEM; itemindex++) {
-           int curwidth=menurowcol[itemindex][IWIDTH]*colwidth-colspace;
+           int curwidth=menucolwidth[itemindex]*colwidth-colspace;
            if (itemindex==selected) {
              background=clrYellow;
              text=clrBlack;
@@ -970,7 +893,7 @@ if (paint==0) {
                break;
              case MI_FREQUENCY:
                curwidth-=colwidth;
-               snprintf(buf, sizeof(buf),"%d%s ", menuvalue[itemindex], Pol);
+               snprintf(buf, sizeof(buf),"%d%c ", menuvalue[itemindex], Pol);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf, sizeof(buf), tr(menucaption[itemindex]));
                break;
@@ -1004,7 +927,6 @@ if (paint==0) {
            }  
          }
          
-        //y=+rowheight;
         if (conf==1) osd->DrawText(left,y,tr("Are you sure?"),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
         else {
           switch(errormessage) {
@@ -1039,48 +961,31 @@ void cMainMenuActuator::GetSignalInfo(void)
       usleep(15);
       fe_ss=0;
       CHECK(ioctl(fd_frontend, FE_READ_SIGNAL_STRENGTH, &fe_ss));
-      fe_ss=fe_ss/655;
       ssdBm = (logf(((double)fe_ss)/65535)*10.8);
+      fe_ss=fe_ss/655;
       usleep(15);
       fe_snr=0;
       CHECK(ioctl(fd_frontend, FE_READ_SNR, &fe_snr));
-      fe_snr=fe_snr/655;
       if (fe_snr>57000)
        snrdB = (logf((double)fe_snr/6553.5)*10.0);
       else
        snrdB = (-3/(logf(fe_snr/65535.0)));
+      fe_snr=fe_snr/655;
       usleep(15);
       fe_unc=0;
       CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
 }
 
-bool cMainMenuActuator::Signal(int Frequenz, char *Pol, int Symbolrate)
+void cMainMenuActuator::Tune(void)
 {
-  dvb_frontend_parameters Frontend;
-  memset(&Frontend, 0, sizeof(Frontend));
-  if (Frequenz < Setup.LnbSLOF) {
-     Frontend.frequency=abs(Frequenz-Setup.LnbFrequLo) * 1000UL;
-     CHECK(ioctl(fd_frontend, FE_SET_TONE, SEC_TONE_OFF));
-        }
-   else {
-    Frontend.frequency=abs(Frequenz-Setup.LnbFrequHi) * 1000UL;
-    CHECK(ioctl(fd_frontend, FE_SET_TONE, SEC_TONE_ON));
-            }
-  if (Pol=="H") {
-    CHECK(ioctl(fd_frontend,FE_SET_VOLTAGE,SEC_VOLTAGE_18)); }
-  else CHECK(ioctl(fd_frontend,FE_SET_VOLTAGE,SEC_VOLTAGE_13));
-  Frontend.inversion=INVERSION_AUTO;
-  Frontend.u.qpsk.symbol_rate=Symbolrate * 1000UL;
-  Frontend.u.qpsk.fec_inner=FEC_AUTO;
-  CHECK(ioctl(fd_frontend,FE_SET_FRONTEND,&Frontend));
-  fe_status_t  status = fe_status_t(0);
-  usleep(15);
-  CHECK(ioctl(fd_frontend, FE_READ_STATUS, &status));
-  if (status & FE_HAS_SYNC)
-  return true;
-        else return false;
+      int tmp[2]={OldChannel->Apid1(),0};  //dummy
+      char tmp2[1][4]={"eng"}; //dummy
+      int tmp3=0; //dummy
+      SChannel->SetPids(OldChannel->Vpid(),OldChannel->Ppid(),&tmp[0],tmp2,&tmp3,tmp2,0);
+      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO,false);
+      if (cDevice::GetDevice(DvbKarte)==cDevice::ActualDevice()) HasSwitched=true;
+      cDevice::GetDevice(DvbKarte)->SwitchChannel(SChannel,HasSwitched);
 }
-
 
 
 // --- cPluginActuator ---------------------------------------------------------
@@ -1107,6 +1012,9 @@ public:
 
 cPluginActuator::cPluginActuator(void)
 {
+  // Initialize any member variables here.
+  // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
+  // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
   statusMonitor = NULL;
   PosTracker = NULL;
   fd_actuator = open("/dev/actuator",0);
@@ -1114,9 +1022,6 @@ cPluginActuator::cPluginActuator(void)
     esyslog("cannot open /dev/actuator");
     exit(1);
   }
-  // Initialize any member variables here.
-  // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
-  // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
 }
 
 cPluginActuator::~cPluginActuator()

@@ -7,8 +7,10 @@ Thomas Bergwinkl <Thomas.Bergwinkl@t-online.de>
 
 See the file COPYING for license information.
 
-Description:
 THIS PLUGINS NEEDS vdr >= 1.3.7
+
+DESCRIPTION
+
 With this plugin you can control a linear or an horizon to horizon actuator
 controlled through the parallel port.
 This kind of actuator usually needs a 36V supply (I drive mine at 12V to
@@ -22,16 +24,30 @@ actuator.png) in the "module" subdirectory.
 You also have to build and load a kernel module (2.6.x kernel needed), look
 in the "module" subdirectory for details.
 
-In the setup-menu of the plugin you have to select the dvb card which is
-connected to the dish driven by the actuator. 
 
-In the plugin-menu you see on the top the signal strength of the currently
-tuned channel. You also see the dish target and the dish position.
-The position increments going west and decrement going east (you have to
+POSITION COUNTING
+
+The position increments going west and decrements going east (you have to
 connect the motor accordingly!).
-The soft East Limit is always 0. 
+The soft East Limit (the origin) is always 0, i.e. during normal operation
+the position range is 0..West Limit.
 
-The onscreen buttons are:
+
+SETUP MENU
+
+In the setup-menu of the plugin you have to select the dvb card which is
+connected to the dish driven by the actuator (see below in "KNOWN PROBLEMS"
+about multi cards setups).
+
+
+MAIN MENU
+
+In the plugin-menu you see on the top the dish target and position.
+Next there's an indication of the signal strength of the currently
+tuned channel. You also see the dish target and the dish position.
+
+Then the onscreen buttons (select with up,down,left,right, operate
+with Ok):
 
 Drive East      : moves the dish east.
 Halt	    	: stops any movement of the motor.
@@ -53,41 +69,74 @@ Set Zero        : sets the position of the dish but won't recalculate stored
 Set West Limit  : stores the current position as the west soft limit.
 
 
-You can select and move to a different satellite.
+If you're positioned on the line showing the current satellite, you can
+select another one with the left and right buttons and go to its position
+with the Ok button.
 
 Frequency & Symbolrate: Here you can select a frequency, polarization (by
 pressing left/right) and symbolrate you want to tune to (by pressing OK)
-and see what signal-strength you get there. To this transponder will also
-be tuned to, after commands like store, goto , drive east, ...
+and see what signal-strength you get there.
 
 Scan Transponder: If you press OK on Scan Transponder, vdr
 will switch to the selected transponder and scan for new/updated channels.
 
-If you want to see an indication of the position of the dish when switching
-channels, you have to apply the patch provided in the patches subdirectory. 
-Without this patch the plugin should work but you won't have any indication
-of the dish moving unless yoo select the plugin menu.
+
+POSITION DISPLAY
+
+If you want to see an indication of the position of the dish when going to a
+different satellite while switching channels, you have to apply the patch
+provided in the patches subdirectory.  Without this patch the plugin should
+work but you won't have any indication of the dish moving unless you select
+the plugin main menu.
 
 
-KNOWN PROBLEMS:
+KNOWN PROBLEMS
 
 - The plugin will load the current dish position at start-up and stores it
 on disk each time it detects it has changed. It's possible to lose the
 actual position if the pc crashes while the dish is moving. In this case you
-have to manually point the dish at a known satellite (it may be necessary to
-disable the limits). I'd like to store the position in the cmos ram (in the
-kernel module) but I don't know where I can find a couple of free bytes (and
-if the pc crashes while storing the position, it may not have updated the
-cmos ram checksum).
+have to manually peak the dish at a known satellite (it may be necessary to
+disable the limits) and use the "Recalc" function. I'd like to store the
+position in the cmos ram (in the kernel module) but I don't know where I can
+find a couple of free bytes (and if the pc crashes while storing the
+position, it may not have updated the cmos ram checksum).
+
+- If you (like me) are using the dxr3 plugin, you'll find that it doesn't
+exit cleanly: soon after vdr calls cDevice::Shutdown() the dxr3 plugin will
+crash vdr, preventing the actuator plugin to save the current dish position
+on disk. As a workaround I reverted the order of the shutdown (around the
+end of vdr.c) from
+
+  cDevice::Shutdown();
+  PluginManager.Shutdown(true);
+
+to
+
+  PluginManager.Shutdown(true);
+  cDevice::Shutdown();
+
+Also remeber to put on the vdr command line the dxr3 plugin *before* the
+actuator plugin (so that it will be stopped *after* actuator has safely
+written the position to disk).
 
 - When the pc is turned on or off my parallel port sets all data lines at 1,
 driving both relays for a very short while. Due to the wiring of the relays
 the motor should not move anyway. If you don't like it you can modify the
 circuit to add some more logic to avoid the problem.
 
-- vdr assumes that, as soon as a channel has been switched to the new source
+- vdr assumes that, as soon as a channel has been switched to, the new source
 (satellite) is valid, even if the dish is moving, so the autoupdate function
-will pick up channels of the wrong satellite. There's a workaround in the
-plugin but it could change the setting of the autoupdate. If you see that
-channels aren't updating anymore check this setting
-(main menu->configuration->dbv->update channels).
+will assign new/updated channels to the wrong satellite. The plugin's
+workaround is to disable autoupdate while the dish is moving and restore the
+previous setting only when it has reached the target satellite. It's
+possible that the plugin will fail to restore the value of this setting.
+If you see that channels aren't updating anymore check this setting (main
+menu->configuration->dbv->update channels, note that while the dish is
+moving this setting is always "no", so check and modify it only when the
+actuator is idle).
+
+- in a multi card setup, vdr considers all cards equally capable of providing
+any source (satellite), regardless to the dish/lnb the card is connected to.
+This is obviously wrong. Attached to the following post you'll find a patch
+to configure which sources (satellites) a card can relly tune to:
+http://article.gmane.org/gmane.linux.vdr/14038

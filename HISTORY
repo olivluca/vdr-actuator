@@ -1,5 +1,18 @@
 VDR Plugin 'actuator' Revision History
------------------------------------
+--------------------------------------
+2004-08-30: Version 0.0.4
+- Kernel module: corrected and revised use of lock (now an rwlock) to
+  use the irqsave/irqrestore version in non interrupt code (doh!). 
+- Kernel module: added sysfs support
+- Corrected calculation of signal strength and snr (now it should really
+  give the same values as the rotor plugin)
+- Removed unneded cMenuEditIntpItem
+- Take into accunt which card is connected to the steerable dish (doh!)
+- Added a note in README about the problems with vdr in multi card setups
+  and the dxr3 plugin
+- Cannot use the frontend directly to tune a new transponder, use
+  ChannelSwitch instead.
+
 2004-08-20: Version 0.0.3
 - I reversed the parameter meaning between DrawRectangle and DrawText that
   lead to some error messages not being shown. Fixed.

@@ -36,7 +36,9 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/sched.h>
+#ifdef CONFIG_DEVFS_FS
 #include <linux/devfs_fs_kernel.h>
+#endif
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/errno.h>
@@ -46,6 +48,7 @@
 #include <linux/interrupt.h>
 #include <linux/ioctl.h>
 #include <asm/uaccess.h>
+#include <linux/device.h>
 #include "actuator.h"
 
 #define DRIVER_NAME "actuator"
@@ -64,6 +67,7 @@ int major;
 
 struct parport *pport;
 struct pardevice *ppdevice;
+struct class_simple *actuator_class;
 
 /* timer, used as a delay for position reached/direction changed */
 
@@ -76,7 +80,7 @@ static struct timer_list testsignalt;
 static int testsignal;
 #endif
 
-static spinlock_t lock;
+static rwlock_t lock;
 static struct actuator_status status;
 static unsigned char lastdirection;
 static unsigned int nextstate;
@@ -99,7 +103,7 @@ static void motor_go(unsigned char direction)
   }  
 }
 
-static void set_mode(unsigned int newmode, unsigned int newtarget)
+static void set_mode(unsigned int newmode, int newtarget)
 {
   status.mode=newmode;
   switch(status.mode)
@@ -125,6 +129,7 @@ static void set_mode(unsigned int newmode, unsigned int newtarget)
       
   case AC_MANUAL_EAST:
       nextstate=ACM_EAST;  
+      break;
   }
   
   if ((status.state==ACM_EAST && nextstate==ACM_WEST) || (status.state==ACM_WEST && nextstate==ACM_EAST))
@@ -146,9 +151,9 @@ static void set_mode(unsigned int newmode, unsigned int newtarget)
 
 static void actuator_timer (unsigned long cookie)
 {
-  spin_lock(&lock);
+  write_lock(&lock);
   if (stopping) {
-    spin_unlock(&lock);
+    write_unlock(&lock);
     return;
   }  
   switch (status.state) {
@@ -173,15 +178,15 @@ static void actuator_timer (unsigned long cookie)
       if (status.state!=ACM_IDLE) set_timer();
       break;
   }        
-  spin_unlock(&lock);
+  write_unlock(&lock);
 }  
 
 #if TESTSIGNAL
 static void testsignal_timer (unsigned long cookie)
 {
-  spin_lock(&lock);
+  write_lock(&lock);
   if (stopping) {
-    spin_unlock(&lock);
+    write_unlock(&lock);
     return;
   }  
   if (status.state == ACM_WEST || status.state == ACM_EAST) {
@@ -190,7 +195,7 @@ static void testsignal_timer (unsigned long cookie)
   }  
   testsignalt.expires=jiffies+HZ/10;
   add_timer(&testsignalt);
-  spin_unlock(&lock);
+  write_unlock(&lock);
 }
 #endif
 
@@ -215,47 +220,50 @@ static int actuator_ioctl(struct inode *node, struct file *filep, unsigned int c
                           unsigned long arg)
 {
     int result;
-    unsigned int new;
+    int new;
+    unsigned long flags;
     
     switch(cmd)
     {
     case AC_RSTATUS:
-        if (copy_to_user((void *)arg, &status, sizeof(status))) return -EFAULT;
-        return 0;
+        read_lock_irqsave(&lock,flags);
+        result=copy_to_user((void *)arg, &status, sizeof(status));
+        read_unlock_irqrestore(&lock,flags);
+        if (result) return -EFAULT;
         break;
 
     case AC_WPOS:
-        spin_lock(&lock);
+        write_lock_irqsave(&lock,flags);
         set_mode(AC_STOP,0);
         result=get_user(status.position, (unsigned int *) arg);
-        spin_unlock(&lock);
+        write_unlock_irqrestore(&lock,flags);
         if(result) return result;
         break;
 
     case AC_WTARGET:
-        result=get_user(new, (unsigned int *) arg);
+        result=get_user(new, (int *) arg);
         if(result) return result;
-        spin_lock(&lock);
+        write_lock_irqsave(&lock,flags);
         set_mode(AC_AUTO, new);
-        spin_unlock(&lock);
+        write_unlock_irqrestore(&lock,flags);
         break;
 
     case AC_MSTOP:
-        spin_lock(&lock);
+        write_lock_irqsave(&lock,flags);
         set_mode(AC_STOP, 0);
-        spin_unlock(&lock);
+        write_unlock_irqrestore(&lock,flags);
         break;
         
     case AC_MWEST:
-        spin_lock(&lock);
+        write_lock_irqsave(&lock,flags);
         set_mode(AC_MANUAL_WEST, 0);
-        spin_unlock(&lock);
+        write_unlock_irqrestore(&lock,flags);
         break;
         
     case AC_MEAST:
-        spin_lock(&lock);
+        write_lock_irqsave(&lock,flags);
         set_mode(AC_MANUAL_EAST, 0);
-        spin_unlock(&lock);
+        write_unlock_irqrestore(&lock,flags);
         break;
     
     }
@@ -270,9 +278,9 @@ struct file_operations actuator_fops = {
 
 void actuator_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
-	spin_lock(&lock);
+	write_lock(&lock);
 	if (stopping) {
-	  spin_unlock(&lock);
+	  write_unlock(&lock);
 	  return;
 	}  
 	if (lastdirection == MD_WEST) status.position++;
@@ -287,7 +295,7 @@ void actuator_interrupt(int irq, void *dev_id, struct pt_regs *regs)
           set_timer();
 	  }
  
-        spin_unlock(&lock);
+        write_unlock(&lock);
 
 }
 
@@ -344,15 +352,18 @@ int actuator_init(void)
        return major;
      }
      
+#ifdef CONFIG_DEVFS_FS
      devfs_mk_cdev(MKDEV(major, 0), S_IFCHR | S_IRUSR | S_IWUSR, DRIVER_NAME);
-
+#endif     
+     actuator_class = class_simple_create(THIS_MODULE, DRIVER_NAME);
+     class_simple_device_add(actuator_class,MKDEV(major,0),NULL,DRIVER_NAME);
 
     /* set up timer function */
     init_timer(&timer);
     timer.function=actuator_timer;
     
     /* set up spinlock */
-    spin_lock_init(&lock);
+    rwlock_init(&lock);
 
     stopping = 0;
     
@@ -372,11 +383,13 @@ int actuator_init(void)
 void actuator_cleanup(void)
 {
      
+    unsigned long flags;
+     
     if(module_refcount(THIS_MODULE)) return;
 
-    spin_lock(&lock);
+    write_lock_irqsave(&lock,flags);
     stopping = 1; /* prevents the timer from rescheduling and the interrupt from running */
-    spin_unlock(&lock);
+    write_unlock_irqrestore(&lock,flags);
 
     del_timer_sync(&timer);
 #if TESTSIGNAL
@@ -385,7 +398,11 @@ void actuator_cleanup(void)
     
     parport_write_data(pport,0x00); /* disable outputs */
     
+#ifdef CONFIG_DEVFS_FS
     devfs_remove(DRIVER_NAME);
+#endif    
+    class_simple_device_remove(MKDEV(major,0));
+    class_simple_destroy(actuator_class);
     unregister_chrdev(major, DRIVER_NAME); 
 
     /* release the parallel port */
