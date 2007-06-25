@@ -1,5 +1,10 @@
 VDR Plugin 'actuator' Revision History
 -----------------------------------
+2004-08-20: Version 0.0.3
+- I reversed the parameter meaning between DrawRectangle and DrawText that
+  lead to some error messages not being shown. Fixed.
+- Loading of the position at startup where it belongs: in cPosTracker
+- workaround for Setup.UpdateChannels moved to cPosTracker
 
 2004-08-14: Version 0.0.2
 

@@ -25,7 +25,7 @@
 #include "module/actuator.h"
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.2";
+static const char *VERSION        = "0.0.3";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -105,7 +105,7 @@ static const int menudigits[] = {
 #define outsidelimits "Position outside limits"
 
 //Positioning tolerance (for transponder scanning)
-#define POSTOLERANCE  10
+#define POSTOLERANCE 5
 
 //Plugin parameters 
 int DvbKarte=0;
@@ -128,7 +128,7 @@ private:
 public:
   cSatPosition(void) {}  
   cSatPosition(int Source, int Position);
-//  ~cSatPosition();
+  ~cSatPosition();
   bool Parse(const char *s);
   bool Save(FILE *f);
   int Source(void) const { return source; }
@@ -140,6 +140,10 @@ cSatPosition::cSatPosition(int Source, int Position)
 {
   source = Source;
   position = Position;
+}  
+
+cSatPosition::~cSatPosition()
+{
 }  
 
 bool cSatPosition::Parse(const char *s)
@@ -194,22 +198,28 @@ cSatPositions SatPositions;
 
 //--- cPosTracker -----------------------------------------------------------
 // Follows the dish when it's moving to store the position on disk
+// It also saves/restore Setup.UpdateChannels while the dish is
+// moving to avoid picking up updates from the wrong satellite
 
 class cPosTracker:private cThread {
 private:
   int LastPositionSaved;
   int fd_actuator;
-  bool forcesave;
   bool stopit;
+  bool restoreupdate;
   const char *positionfilename;
   cCondVar *trackwait;
   cMutex mutex;
+  int update;
+  int target;
+  cMutex updatemutex;
 public:
   cPosTracker(void);    
   ~cPosTracker(void);
-  void Track(void);
+  void Track(int NewTarget=-1);
   void SavePos(int newpos);
-  const char *PositionFilename(void) { return positionfilename; }
+  void SaveUpdate(void);
+  void RestoreUpdate(void);
 protected:
   void Action(void);
 };
@@ -218,38 +228,101 @@ cPosTracker::cPosTracker(void):cThread("Position Tracker")
 {
   fd_actuator = open("/dev/actuator",0);
   positionfilename=strdup(AddDirectory(cPlugin::ConfigDirectory(), "actuator.pos"));
-  forcesave=true;
   stopit=false;
+  restoreupdate=true;
+  update=-1;
   trackwait=new cCondVar();
-  if (fd_actuator) Start();
+  if (fd_actuator) {
+    actuator_status status;
+    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    if (status.position==0) {
+      //driver just loaded, try to get the position from the file
+      FILE *f=fopen(positionfilename,"r");
+      if(f) {
+        int newpos;
+        if (fscanf(f,"%d",&newpos)==1) { 
+          isyslog("Read position %d from %s",newpos,positionfilename); 
+          CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+        } else esyslog("couldn't read dish position from %s",positionfilename);
+        fclose(f);
+      } else esyslog("Couldn't open file %s: %s",positionfilename,strerror(errno));
+    }  else {
+      //driver already loaded, trust it
+      LastPositionSaved=status.position+1; //force a save
+      SavePos(status.position);
+    }  
+    Start();
+  } else { //it should never take this branch
+    esyslog("PosTracker cannot open /dev/actuator: %s", strerror(errno));
+    exit(1);
+  } 
 }
 
 cPosTracker::~cPosTracker(void)
 {
+  updatemutex.Lock();
+  target=-1;
+  restoreupdate=false;
+  if (update>=0) { 
+    Setup.UpdateChannels=update;  
+    Setup.Save();
+  }  
+  updatemutex.Unlock();
   if (fd_actuator) {
     stopit=true;
     trackwait->Broadcast();
-    Cancel(5);
-  }  
+    //Cancel(5);
+    sleep(5);
+  }
 }
 
 void cPosTracker::SavePos(int NewPos)
 {
-  if(forcesave || NewPos!=LastPositionSaved) {
+  if(NewPos!=LastPositionSaved) {
     cSafeFile f(positionfilename);
     if (f.Open()) {
       fprintf(f,"%d",NewPos);
       f.Close();
       LastPositionSaved=NewPos;
-      forcesave=false;
     } else LOG_ERROR;
   }    
 }
 
-void cPosTracker::Track(void)
+void cPosTracker::Track(int NewTarget)
 {
+  updatemutex.Lock();
+  if (restoreupdate) { 
+    target=NewTarget;
+    if (update==-1) {
+      update=Setup.UpdateChannels;
+      Setup.UpdateChannels=0;
+    }
+  }  
+  updatemutex.Unlock();
   if (fd_actuator) trackwait->Broadcast();
 }
+
+void cPosTracker::SaveUpdate(void)
+{
+  updatemutex.Lock();
+  restoreupdate=false;
+  if (update==-1) {
+    update=Setup.UpdateChannels;
+    Setup.UpdateChannels=0;
+  }  
+  target=-1;
+  updatemutex.Unlock();
+}
+
+void cPosTracker::RestoreUpdate(void)
+{
+  //actually the restore will be made in Action() after Track() has set a new target
+  updatemutex.Lock();
+  restoreupdate=true;
+  updatemutex.Unlock();
+}
+
+
 
 void cPosTracker::Action(void)
 {
@@ -257,7 +330,7 @@ void cPosTracker::Action(void)
   while(true) {
     cMutexLock MutexLock(&mutex);
     trackwait->Wait(mutex);
-    if (stopit) { 
+    if (stopit) {
       CHECK(ioctl(fd_actuator, AC_MSTOP));
       sleep(1);
       CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
@@ -268,11 +341,21 @@ void cPosTracker::Action(void)
     while (true) {
       CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
       SavePos(status.position);
-      if (status.state==ACM_IDLE) break;
+      if (status.state==ACM_IDLE) {
+        updatemutex.Lock();
+        if (update!=-1 and target!=-1 and abs(status.position-target)<POSTOLERANCE) {
+          Setup.UpdateChannels=update;
+          update=-1;
+          target=-1;
+        }
+        updatemutex.Unlock();
+        break;
+      }  
       usleep(50000);
     }
   }  
 }
+
 
 cPosTracker *PosTracker;
 
@@ -283,27 +366,17 @@ private:
   bool transfer;
   unsigned int last_state_shown;
   int last_position_shown;
-  int oldupdate;
-  int target;
 protected:
   virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber);
   virtual bool AlterDisplayChannel(cSkinDisplayChannel *displayChannel);
 public:
   cStatusMonitor();
-  ~cStatusMonitor();
 };
 
 cStatusMonitor::cStatusMonitor()
 {
-  oldupdate=-1;
-  target=-1;
   transfer=false;
   last_state_shown=ACM_IDLE;
-}
-
-cStatusMonitor::~cStatusMonitor()
-{
-  if (oldupdate>=0) Setup.UpdateChannels=oldupdate;
 }
 
 void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
@@ -315,12 +388,7 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
      dsyslog("Checking satellite");
      //if (DvbKarte==Device->CardIndex())
      cSatPosition *p=SatPositions.Get(channel.Source());
-     //workaround for broken autoupdate logic
-     if (oldupdate<0) {
-       oldupdate=Setup.UpdateChannels;
-       Setup.UpdateChannels=0;
-     }
-     target=-1;
+     int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
      if (p) {
        target=p->Position();
        dsyslog("New sat position: %i",target);
@@ -329,20 +397,14 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
          if (status.position!=target || status.target!=target)  {
            dsyslog("Satellite changed");
            CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
-           PosTracker->Track();
-         } else { //already positioned
-           if(oldupdate>=0) {
-             Setup.UpdateChannels=oldupdate;
-             oldupdate=-1;
-             }
-           target=-1;  
-           }
+         }  
        } else {
-         CHECK(ioctl(fd_actuator, AC_MSTOP));
          Skins.Message(mtError, tr(outsidelimits));
          target=-1;
-       }      
+       }  
      } else Skins.Message(mtError, tr(dishnopos));
+     if (target==-1) CHECK(ioctl(fd_actuator,AC_MSTOP));
+     if (PosTracker) PosTracker->Track(target);
           
      }
        if ((cDevice::ActualDevice()!=cDevice::PrimaryDevice()) && (Device==cDevice::PrimaryDevice()) )
@@ -376,12 +438,6 @@ bool cStatusMonitor::AlterDisplayChannel(cSkinDisplayChannel *displayChannel)
         
       case ACM_REACHED:
         if (showit) displayChannel->SetMessage(mtInfo,tr(dishreached));
-        if (target>=0 && status.target == target && oldupdate>=0 ) {
-          Setup.UpdateChannels=oldupdate;
-          oldupdate=-1;
-          target=-1;
-          return false;
-          }
         return true;
         
       case ACM_STOPPED:
@@ -495,7 +551,7 @@ void cMenuSetupActuator::Store(void)
 
 class cMainMenuActuator : public cOsdObject {
 private:
-  int digits,paint,menucolumn,menuline,conf,repeat,oldupdate,HasSwitched,fd_frontend;
+  int digits,paint,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
   enum em {
     EM_NONE,
     EM_OUTSIDELIMITS,
@@ -532,8 +588,6 @@ public:
 
 cMainMenuActuator::cMainMenuActuator(void)
 {
-  oldupdate=Setup.UpdateChannels;
-  Setup.UpdateChannels=0;
   OldChannel=Channels.GetByNumber(cDevice::GetDevice(DvbKarte)->CurrentChannel());
   repeat=HasSwitched=false;
   conf=0;
@@ -544,6 +598,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   osd=NULL;
   digits=0;
   LimitsDisabled=false;
+  PosTracker->SaveUpdate();
   static char buffer[PATH_MAX];
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
   fd_frontend = open(buffer,0);
@@ -568,10 +623,10 @@ cMainMenuActuator::~cMainMenuActuator()
   delete osd;
   close(fd_frontend);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
+  PosTracker->RestoreUpdate();
   //if (HasSwitched) {
      cDevice::GetDevice(DvbKarte)->SwitchChannel(OldChannel,true);
   //   }
-  Setup.UpdateChannels=oldupdate;
 }
 
 
@@ -646,7 +701,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 }
                 break;
     case kOk:
-             Setup.UpdateChannels=0;
              switch(selected) {
                 case MI_DRIVEEAST:
                    if (status.position<=0 && !LimitsDisabled) errormessage=EM_ATLIMITS;
@@ -951,19 +1005,19 @@ if (paint==0) {
          }
          
         //y=+rowheight;
-        if (conf==1) osd->DrawText(left,y,tr("Are you sure?"),clrWhite,clrRed,textfont,OSDWIDTH,rowheight,taCenter);
+        if (conf==1) osd->DrawText(left,y,tr("Are you sure?"),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
         else {
           switch(errormessage) {
             case EM_OUTSIDELIMITS:
               snprintf(buf, sizeof(buf),"%s (0..%d)", tr(outsidelimits), WestLimit);
-              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
+              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
               break;
             case EM_ATLIMITS:  
               snprintf(buf, sizeof(buf), "%s (0..%d)", tr(atlimits), WestLimit);
-              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
+              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
               break;
             case EM_NOTPOSITIONED:
-              osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH,y+rowheight-1,taCenter);
+              osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
               break;
             default:  
               osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrTransparent); 
@@ -1054,9 +1108,10 @@ public:
 cPluginActuator::cPluginActuator(void)
 {
   statusMonitor = NULL;
+  PosTracker = NULL;
   fd_actuator = open("/dev/actuator",0);
   if (fd_actuator<0) {
-    esyslog("Cannot open /dev/actuator: %s", strerror(errno));
+    esyslog("cannot open /dev/actuator");
     exit(1);
   }
   // Initialize any member variables here.
@@ -1067,7 +1122,6 @@ cPluginActuator::cPluginActuator(void)
 cPluginActuator::~cPluginActuator()
 {
   // Clean up after yourself!
-  CHECK(ioctl(fd_actuator, AC_MSTOP));
   delete statusMonitor;
   delete PosTracker;
   close(fd_actuator);
@@ -1089,23 +1143,6 @@ bool cPluginActuator::Initialize(void)
 {
   // Initialize any background activities the plugin shall perform.
   PosTracker=new cPosTracker();
-  actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  if (status.position==0) {
-    //driver just loaded, try to get the position from the file
-    FILE *f=fopen(PosTracker->PositionFilename(),"r");
-    if(f) {
-      int newpos;
-      if (fscanf(f,"%d",&newpos)==1) { 
-        isyslog("Read position %d from %s",newpos,PosTracker->PositionFilename()); 
-        CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
-      } else esyslog("couldn't read dish position from %s",PosTracker->PositionFilename());
-      fclose(f);
-    } else esyslog("Couldn't open file %s: %s",PosTracker->PositionFilename(),strerror(errno));
-  }  else {
-    //driver already loaded, trust it
-    PosTracker->SavePos(status.position);
-  }  
   return true;
 }
 
