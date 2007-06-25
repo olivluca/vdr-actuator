@@ -1,5 +1,19 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2005-08-07: Version 1.0.0
+- It's been working for a year, let's call it 1.0.0 ;-) 
+- Save channels after a transponder/satellite scan
+- New menu entries to mark, unmark and delete marked channels ("mark" means
+  prepending '+' to the name to aid finding stale channel entries)
+- After a satellite scan the transponder index was reset at 1 but the
+  pointer was NULL. Fixed to point at the first transponder.
+- Added a note in module/README about possible problems with irq7 (as
+  reported by Frank Welter) 
+- fixed test.py (in the module subdirectory) to work with python 2.4
+- wrap-around menu
+- themes support
+- use setup settings for osd position and width
+
 2005-03-31: Version 0.0.9
 - Dutch translation by Johan Schuring <vetteblei@gmail.com>
 - Fast transponder/satellite scan, thanks to the wonderful work of Thomas

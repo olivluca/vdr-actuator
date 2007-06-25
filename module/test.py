@@ -3,7 +3,7 @@ import curses.textpad
 from fcntl import ioctl
 import struct
 
-AC_RSTATUS=0x80107080
+AC_RSTATUS=-2146406272 #0x80107080
 AC_WPOS=0x40047081
 AC_WTARGET=0x40047082
 AC_MSTOP=0x7083

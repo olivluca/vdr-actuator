@@ -367,6 +367,69 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Eesti
     "",                                          //Dansk
   },
+  { "Mark channels",                             //English
+    "",                                          //German
+    "",                                          //Slovenian
+    "Marca canali",                              //Italian
+    "",                                          //Dutch
+    "",                                          //Portugues
+    "",                                          //French
+    "",                                          //Norwegian
+    "",                                          //Finnish
+    "",                                          //Polish
+    "Marca canales",                             //Spanish
+    "",                                          //Greek
+    "",                                          //Swedish
+    "",                                          //Romanian
+    "",                                          //Hugarian
+    "Marca canals",                              //Catalan
+    "",                                          //Russian
+    "",                                          //Croatian
+    "",                                          //Eesti
+    "",                                          //Dansk
+  },
+  { "Unmark channels",                           //English
+    "",                                          //German
+    "",                                          //Slovenian
+    "Smarca canali",                             //Italian
+    "",                                          //Dutch
+    "",                                          //Portugues
+    "",                                          //French
+    "",                                          //Norwegian
+    "",                                          //Finnish
+    "",                                          //Polish
+    "Desmarca canales",                          //Spanish
+    "",                                          //Greek
+    "",                                          //Swedish
+    "",                                          //Romanian
+    "",                                          //Hugarian
+    "Desmarca canals",                           //Catalan
+    "",                                          //Russian
+    "",                                          //Croatian
+    "",                                          //Eesti
+    "",                                          //Dansk
+  },
+  { "Delete marked channels",                    //English
+    "",                                          //German
+    "",                                          //Slovenian
+    "Cancella canali marcati",                   //Italian
+    "",                                          //Dutch
+    "",                                          //Portugues
+    "",                                          //French
+    "",                                          //Norwegian
+    "",                                          //Finnish
+    "",                                          //Polish
+    "Borra canales marcados",                    //Spanish
+    "",                                          //Greek
+    "",                                          //Swedish
+    "",                                          //Romanian
+    "",                                          //Hugarian
+    "Esborra canals marcats",                     //Catalan
+    "",                                          //Russian
+    "",                                          //Croatian
+    "",                                          //Eesti
+    "",                                          //Dansk
+  },
   { "Enable Limits",                             //English
     "Limits ein",                                //German
     "",                                          //Slovenian

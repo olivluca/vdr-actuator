@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "0.0.9";
+static const char *VERSION        = "1.0.0";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 
@@ -43,11 +43,29 @@ enum menuindex {
                    MI_VPID,
                    MI_APID,
                    MI_SCANTRANSPONDER,
-                   MI_SCANSATELLITE
+                   MI_SCANSATELLITE,
+  MI_MARK,         MI_UNMARK,              MI_DELETE                 
   };
 
-#define FIRST_MI_ONECOLUMN MI_SATPOSITION
-#define MAXMENUITEM MI_SCANSATELLITE
+
+//Items per row
+static const int itemsperrow[] = {
+                                 3,
+                                 3,
+                                 3,
+                                 3,
+                                 1,
+                                 1,
+                                 1,
+                                 1,
+                                 1,
+                                 1,
+                                 1,
+                                 3
+                                 };
+
+#define MAXMENUITEM MI_DELETE
+#define MAXROW 11
 
 
 //Selectable buttons on the plugin menu: captions
@@ -62,26 +80,11 @@ static const char *menucaption[] = {
                                    "Vpid:",
                                    "Apid:",
                                    "Scan Transponder",
-                                   "Scan Satellite"
+                                   "Scan Satellite",
+                                   "Mark channels", "Unmark channels", "Delete marked channels"
                                   };
 #define ENABLELIMITS "Enable Limits"
 #define DISABLELIMITS "Disable Limits"
-                                  
-                                  
-//Relative width (in thirds of the osd width) of each menu entry
-static const int menucolwidth[] = { 
-                                       1, 1, 1,
-                                       1, 1, 1,
-                                       1, 1, 1, 
-                                       1, 1, 1, 
-                                          3,
-                                          3,
-                                          3,
-                                          3,
-                                          3,
-                                          3,
-                                          3
-                                };                                   
                                   
 //Number of allowed input digits for each menu item                                  
 static const int menudigits[] = {
@@ -95,7 +98,8 @@ static const int menudigits[] = {
                                    4,
                                    4,
                                    0,
-                                   0
+                                   0,
+                                   0,0
                                    };                                  
 
 //Dish messages
@@ -125,6 +129,31 @@ int fd_actuator;
 
 //how to access SetupStore inside the main menu without this kludge?
 cPlugin *theplugin;
+
+//------ Theme ----------------------------------------------------------------
+
+static cTheme Theme;
+
+THEME_CLR(Theme, Background, clrGray50);
+THEME_CLR(Theme, HeaderBg, clrYellow);
+THEME_CLR(Theme, HeaderText, clrBlack);
+THEME_CLR(Theme, HeaderBgError, clrRed);
+THEME_CLR(Theme, HeaderTextError, clrWhite);
+THEME_CLR(Theme, RedBar, clrRed);
+THEME_CLR(Theme, YellowBar, clrYellow);
+THEME_CLR(Theme, GreenBar, clrGreen);
+THEME_CLR(Theme, StatusText, clrWhite);
+THEME_CLR(Theme, SignalOk, clrYellow);
+THEME_CLR(Theme, SignalNo, clrBlack);
+THEME_CLR(Theme, NormalText, clrYellow);
+THEME_CLR(Theme, NormalBg, clrGray50);
+THEME_CLR(Theme, SelectedText, clrBlack);
+THEME_CLR(Theme, SelectedBg, clrYellow);
+THEME_CLR(Theme, MessageText, clrWhite);
+THEME_CLR(Theme, MessageBg, clrRed);
+THEME_CLR(Theme, ProgressBar, clrBlue);
+THEME_CLR(Theme, ProgressText, clrWhite);
+
 
 // --- cSatPosition -----------------------------------------------------------
 // associates one source with its position
@@ -481,6 +510,8 @@ class cMenuSetupActuator : public cMenuSetupPage {
 private:
   int newDvbKarte;
   int newMinRefresh;
+  cThemes themes;
+  int themeIndex;
 protected:
   virtual void Store(void);
 public:
@@ -491,16 +522,22 @@ cMenuSetupActuator::cMenuSetupActuator(void)
 {
   newDvbKarte=DvbKarte+1;
   newMinRefresh=MinRefresh;
+  themes.Load("actuator");
+  themeIndex=themes.GetThemeIndex(Theme.Description());
   Add(new cMenuEditIntItem( tr("Card connected with motor"), &newDvbKarte,1,cDevice::NumDevices()));
   Add(new cMenuEditIntItem( tr("Min. screen refresh time (ms)"), &newMinRefresh,10,1000));
-
+  if (themes.NumThemes())
+  Add(new cMenuEditStraItem(tr("Setup.OSD$Theme"),&themeIndex, themes.NumThemes(), themes.Descriptions()));
 }
 
 void cMenuSetupActuator::Store(void)
 {
   SetupStore("DVB-Karte", DvbKarte=newDvbKarte-1);
   SetupStore("MinRefresh", MinRefresh=newMinRefresh);
+  SetupStore("Theme", themes.Name(themeIndex));
+  themes.Load("actuator",themes.Name(themeIndex), &Theme);
 }
+
 
 // --- cTransponder -----------------------------------------------------------
 //Transponder data for satellite scan
@@ -578,7 +615,7 @@ void cTransponders::LoadTransponders(int source)
 
 class cMainMenuActuator : public cOsdObject {
 private:
-  int digits,paint,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
+  int digits,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
   enum em {
     EM_NONE,
     EM_OUTSIDELIMITS,
@@ -613,14 +650,38 @@ private:
     SM_SATELLITE
     } scanmode;
   bool showScanResult;  
-  void DisplaySignalInfoOnOsd(void);
+  void DisplayOsd(void);
   void GetSignalInfo(void);
   void Tune(bool live=true);
   void StartScan(bool live=true);
   void StopScan(void);
+  void MarkChannels(void);
+  void UnmarkChannels(void);
+  void DeleteMarkedChannels(void);
+  int Selected(void);
+  tColor clrBackground;
+  tColor clrHeaderBg;
+  tColor clrHeaderText;
+  tColor clrHeaderBgError;
+  tColor clrHeaderTextError;
+  tColor clrRedBar;
+  tColor clrYellowBar;
+  tColor clrGreenBar;
+  tColor clrStatusText;
+  tColor clrSignalOk;
+  tColor clrSignalNo;
+  tColor clrNormalText;
+  tColor clrNormalBg;
+  tColor clrSelectedText;
+  tColor clrSelectedBg;
+  tColor clrMessageText;
+  tColor clrMessageBg;
+  tColor clrProgressBar;
+  tColor clrProgressText;
 public:
   cMainMenuActuator(void);
   ~cMainMenuActuator();
+  void Refresh(void);
   virtual void Show(void);
   virtual eOSState ProcessKey(eKeys Key);
 };
@@ -635,7 +696,6 @@ cMainMenuActuator::cMainMenuActuator(void)
   errormessage=EM_NONE;
   menucolumn=menuvalue[MI_STEPSEAST]=menuvalue[MI_STEPSWEST]=1;
   menuline=1;
-  paint=0;
   osd=NULL;
   digits=0;
   LimitsDisabled=false;
@@ -679,6 +739,27 @@ cMainMenuActuator::cMainMenuActuator(void)
   scantime=new cTimeMs();
   refresh=new cTimeMs();
   refresh->Set(-MinRefresh);
+  
+  clrBackground=Theme.Color(Background);
+  clrHeaderBg=Theme.Color(HeaderBg);
+  clrHeaderText=Theme.Color(HeaderText);
+  clrHeaderBgError=Theme.Color(HeaderBgError);
+  clrHeaderTextError=Theme.Color(HeaderTextError);
+  clrRedBar=Theme.Color(RedBar);
+  clrYellowBar=Theme.Color(YellowBar);
+  clrGreenBar=Theme.Color(GreenBar);
+  clrStatusText=Theme.Color(StatusText);
+  clrSignalOk=Theme.Color(SignalOk);
+  clrSignalNo=Theme.Color(SignalNo);
+  clrNormalText=Theme.Color(NormalText);
+  clrNormalBg=Theme.Color(NormalBg);
+  clrSelectedText=Theme.Color(SelectedText);
+  clrSelectedBg=Theme.Color(SelectedBg);
+  clrMessageText=Theme.Color(MessageText);
+  clrMessageBg=Theme.Color(MessageBg);
+  clrProgressBar=Theme.Color(ProgressBar);
+  clrProgressText=Theme.Color(ProgressText);
+
 }
 
 cMainMenuActuator::~cMainMenuActuator()
@@ -691,32 +772,32 @@ cMainMenuActuator::~cMainMenuActuator()
   close(fd_frontend);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
   PosTracker->RestoreUpdate();
-  cDevice *myDevice=cDevice::GetDevice(DvbKarte);
-  if (HasSwitched) {
-    if (cDevice::GetDevice(OldChannel,0)==myDevice) {
-      cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
-      return;
-    }  
-  }
-  myDevice->SwitchChannel(OldChannel,true);  
+  if (OldChannel) {
+    cDevice *myDevice=cDevice::GetDevice(DvbKarte);
+    if (HasSwitched) {
+      if (cDevice::GetDevice(OldChannel,0)==myDevice) {
+        cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
+        return;
+      }  
+    }
+    myDevice->SwitchChannel(OldChannel,true);
+  }  
 }
 
 
-void cMainMenuActuator::Show(void)
+void cMainMenuActuator::Refresh(void)
 {
    if (refresh->Elapsed()>=MinRefresh) {
         refresh->Set(); 
         GetSignalInfo();
-        DisplaySignalInfoOnOsd();
+        DisplayOsd();
    }     
 
 }
 
 eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 {
-  int selected;
-  if (menuline<4) selected=menuline*3+menucolumn;
-    else selected=menuline+8;
+  int selected=Selected();
   int newpos;
   eOSState state = cOsdObject::ProcessKey(Key);
   actuator_status status;
@@ -747,8 +828,9 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
       if (Key!=kNone || scantime->Elapsed()>=10000 || PFilter->EndOfScan()) {
         scanmode=SM_NONE;
         StopScan();
+        Channels.Save();
       }
-      Show();
+      Refresh();
       return state;
   }
   
@@ -777,13 +859,16 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
         } else {
           scanmode=SM_NONE;
           transponderindex=1;
+          curtransponder=Transponders->First();
+          Channels.Save();
         }
       }
       if (Key!=kNone && scanmode!=SM_NONE) {
         StopScan();
         scanmode=SM_NONE;
+        Channels.Save();
       }
-      Show();
+      Refresh();
       return state;     
   }      
   
@@ -836,7 +921,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                     break;
                   
                   default:  
-                    if ((menucolumn!=0) && (menuline<4)) menucolumn--;
+                    if (menucolumn>0) menucolumn--;
+                      else menucolumn=itemsperrow[menuline]-1;
              } //switch(selected)  
              break;
                 
@@ -883,15 +969,27 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                     break;
                 
                   default:
-                    if ((menucolumn!=2) && (menuline<4)) menucolumn++;
+                    if (menucolumn<itemsperrow[menuline]-1) menucolumn++;
+                      else menucolumn=0;
              } //switch(selected)    
              break;
     case kUp:
-                if (menuline>0) menuline--;
+                menuline--;
+                if (menuline<0) menuline=MAXROW;
+                if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) { 
+                  menuline--;
+                  if (menuline<0) menuline=MAXROW;
+                }  
+                if (menucolumn>=itemsperrow[menuline]) menucolumn=itemsperrow[menuline]-1;
                 break;
     case kDown: 
-                if (menuline<9 || (menuline<10 && menuvalue[MI_SCANSATELLITE]!=0)) menuline++;
-                if (menuline>3) menucolumn=1;
+                menuline++;
+                if (menuline>MAXROW) menuline=0;
+                if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) {
+                  menuline++;
+                  if (menuline>MAXROW) menuline=0;
+                }  
+                if (menucolumn>=itemsperrow[menuline]) menucolumn=itemsperrow[menuline]-1;
                 break;
     case k0 ... k9:  
                 if (selected<=MAXMENUITEM) {
@@ -1049,6 +1147,27 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      } else errormessage=EM_OUTSIDELIMITS; 
                    } 
                    break;
+                case MI_MARK:
+                   if (conf==0) conf=1;
+                   else {
+                     MarkChannels();
+                     conf=0;
+                   }  
+                   break;
+                case MI_UNMARK:
+                   if (conf==0) conf=1;
+                   else {
+                     UnmarkChannels();
+                     conf=0;
+                   }  
+                   break;
+                case MI_DELETE:
+                   if (conf==0) conf=1;
+                   else {
+                     DeleteMarkedChannels();
+                     conf=0;
+                   }  
+                   break;
              } //switch(selected)
              digits=0;
              repeat=false;
@@ -1067,7 +1186,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 else
                 return osEnd;
     default:
-                Show();
+                Refresh();
                 return state;
     }
   if ((oldcolumn!=menucolumn) || (menuline!=oldline)) {
@@ -1075,39 +1194,48 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     conf=0;
    }
   }
-  Show();
+  Refresh();
   return state;
 }
 
-void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
+#define OSDWIDTH 600
+#define CORNER 10
+
+void cMainMenuActuator::Show(void)
+{
+  osd = cOsdProvider::NewOsd(Setup.OSDLeft, Setup.OSDTop);
+  if (osd) {
+    int rowheight=textfont->Height();
+    tArea Area[] = 
+      {{ 0, 0,           Setup.OSDWidth-1, rowheight*6-1,  4},  //rows 0..5  signal info
+       { 0, rowheight*7, Setup.OSDWidth-1, rowheight*19-1, 4},  //rows 7..18 menu
+       { 0, rowheight*19,Setup.OSDWidth-1, rowheight*20-1, 2}}; //row  19    prompt/error
+    osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
+  } else esyslog("Darn! Couldn't create osd");
+  Refresh();  
+}
+
+void cMainMenuActuator::DisplayOsd(void)
 {
       int ShowSNR = fe_snr/655;
       int ShowSS =  fe_ss/655;
       int rowheight=textfont->Height();
       
-#define OSDWIDTH 600
-#define BARWIDTH(x)  (OSDWIDTH * x / 100)
+#define BARWIDTH(x)  (Setup.OSDWidth * x / 100)
 #define REDLIMIT 33
 #define YELLOWLIMIT 66
-#define clrBackground clrGray50
 
-      if (paint==0) {
-         paint=1;
-         osd = cOsdProvider::NewOsd(((Setup.OSDWidth - OSDWIDTH) / 2) + Setup.OSDLeft, Setup.OSDTop);
-         if (osd) {
-           tArea Area[] = 
-             {{ 0, 0,           OSDWIDTH-1, rowheight*6-1,  4},  //rows 0..5  signal info
-   	      { 0, rowheight*7, OSDWIDTH-1, rowheight*18-1, 2},  //rows 7..17 menu
-	      { 0, rowheight*18,OSDWIDTH-1, rowheight*19-1, 2}}; //row  18    prompt/error
-           osd->SetAreas(Area, sizeof(Area) / sizeof(tArea));
-           osd->Flush();
-        }
-      }
-      
+#define TopCorners    osd->DrawEllipse(0, y, CORNER, y+CORNER, clrTransparent, -2); \
+                      osd->DrawEllipse((Setup.OSDWidth-CORNER),y,Setup.OSDWidth, y+CORNER, clrTransparent, -1); 
+
+#define BottomCorners  osd->DrawEllipse(0, y-CORNER, CORNER, y, clrTransparent, -3); \
+                       osd->DrawEllipse((Setup.OSDWidth-CORNER),y-CORNER, Setup.OSDWidth, y, clrTransparent, -4); 
+
       if(osd)
       {
-         osd->DrawRectangle(0,0,OSDWIDTH,rowheight*13-1,clrBackground);
-         char buf[1024];
+         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*13-1,clrBackground);
+         char buf[512];
+         char buf2[512];
          
          int y=0;
          
@@ -1118,89 +1246,97 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
            case ACM_STOPPED:
            case ACM_CHANGE:
              snprintf(buf,sizeof(buf), tr(dishwait));
-             background=clrWhite;
-             text=clrBlack;
+             background=clrHeaderBg;
+             text=clrHeaderText;
              break;
            case ACM_ERROR:
              snprintf(buf,sizeof(buf), tr(disherror));
-             background=clrRed;
-             text=clrWhite;
+             background=clrHeaderBgError;
+             text=clrHeaderTextError;
              break;
           default:
              if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
              else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
-             background=clrWhite;
-             text=clrBlack;
-         }      
-         osd->DrawText(0,y,buf,text,background,textfont,OSDWIDTH,y+rowheight-1,taLeft);
+             background=clrHeaderBg;
+             text=clrHeaderText;
+         }    
+         osd->DrawRectangle(0,y,CORNER-1,y+rowheight-1,background);  
+         snprintf(buf2,sizeof(buf2),"%s - %s", tr(MAINMENUENTRY), buf);
+         osd->DrawText(CORNER,y,buf2,text,background,textfont,Setup.OSDWidth,y+rowheight-1,taLeft);
+         TopCorners;
          
          y+=rowheight;
          if (ShowSS > 0) {
            ShowSS=BARWIDTH(ShowSS);
-           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSS), y+rowheight-3, clrRed);
-           if (ShowSS > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSS), y+rowheight-3, clrYellow);
-           if (ShowSS > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSS, y+rowheight-3, clrGreen);
+           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSS), y+rowheight-3, clrRedBar);
+           if (ShowSS > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSS), y+rowheight-3, clrYellowBar);
+           if (ShowSS > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSS, y+rowheight-3, clrGreenBar);
          }
          y+=rowheight;
          if (ShowSNR > 0) {
            ShowSNR=BARWIDTH(ShowSNR);
-           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSNR), y+rowheight-3, clrRed);
-           if (ShowSNR > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSNR), y+rowheight-3, clrYellow);
-           if (ShowSNR > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSNR, y+rowheight-3, clrGreen);
+           osd->DrawRectangle(0, y+3, min(BARWIDTH(REDLIMIT),ShowSNR), y+rowheight-3, clrRedBar);
+           if (ShowSNR > BARWIDTH(REDLIMIT)) osd->DrawRectangle(BARWIDTH(REDLIMIT), y+3, min(BARWIDTH(YELLOWLIMIT),ShowSNR), y+rowheight-3, clrYellowBar);
+           if (ShowSNR > BARWIDTH(YELLOWLIMIT)) osd->DrawRectangle(BARWIDTH(YELLOWLIMIT), y+3, ShowSNR, y+rowheight-3, clrGreenBar);
          }
          
 #define OSDSTATUSWIN_X(col)      ((col == 7) ? 475 : (col == 6) ? 410 : (col == 5) ? 275 : (col == 4) ? 220 : (col == 3) ? 125 : (col == 2) ? 70 : 15)
-#define OSDSTATUSWIN_XC(col,txt) (((col - 1) * OSDWIDTH / 5) + ((OSDWIDTH / 5 - textfont->Width(txt)) / 2))
+#define OSDSTATUSWIN_XC(col,txt) (((col - 1) * Setup.OSDWidth / 5) + ((Setup.OSDWidth / 5 - textfont->Width(txt)) / 2))
 
          y+=rowheight;
-         osd->DrawText(OSDSTATUSWIN_X(1), y, "STR:", clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(1), y, "STR:", clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "%04x", fe_ss);
-         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "(%2d%%)", fe_ss / 655);
-         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrWhite, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_X(4), y, "BER:", clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrStatusText, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(4), y, "BER:", clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "%08x", fe_ber);
-         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrStatusText, clrBackground, textfont);
          
          y+=rowheight;
-         osd->DrawText(OSDSTATUSWIN_X(1), y, "SNR:", clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(1), y, "SNR:", clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "%04x", fe_snr);
-         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(2), y, buf, clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "(%2d%%)", fe_snr / 655);
-         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrWhite, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_X(4), y, "UNC:", clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(3), y, buf, clrStatusText, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(4), y, "UNC:", clrStatusText, clrBackground, textfont);
          snprintf(buf, sizeof(buf), "%08x", fe_unc);
-         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrWhite, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_X(5), y, buf, clrStatusText, clrBackground, textfont);
          
          y+=rowheight;
-         osd->DrawText(OSDSTATUSWIN_XC(1,"LOCK"),    y, "LOCK",    (fe_status & FE_HAS_LOCK)    ? clrYellow : clrBlack, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(2,"SIGNAL"),  y, "SIGNAL",  (fe_status & FE_HAS_SIGNAL)  ? clrYellow : clrBlack, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(3,"CARRIER"), y, "CARRIER", (fe_status & FE_HAS_CARRIER) ? clrYellow : clrBlack, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(4,"VITERBI"), y, "VITERBI", (fe_status & FE_HAS_VITERBI) ? clrYellow : clrBlack, clrBackground, textfont);
-         osd->DrawText(OSDSTATUSWIN_XC(5,"SYNC"),    y, "SYNC",    (fe_status & FE_HAS_SYNC)    ? clrYellow : clrBlack, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(1,"LOCK"),    y, "LOCK",    (fe_status & FE_HAS_LOCK)    ? clrSignalOk : clrSignalNo, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(2,"SIGNAL"),  y, "SIGNAL",  (fe_status & FE_HAS_SIGNAL)  ? clrSignalOk : clrSignalNo, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(3,"CARRIER"), y, "CARRIER", (fe_status & FE_HAS_CARRIER) ? clrSignalOk : clrSignalNo, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(4,"VITERBI"), y, "VITERBI", (fe_status & FE_HAS_VITERBI) ? clrSignalOk : clrSignalNo, clrBackground, textfont);
+         osd->DrawText(OSDSTATUSWIN_XC(5,"SYNC"),    y, "SYNC",    (fe_status & FE_HAS_SYNC)    ? clrSignalOk : clrSignalNo, clrBackground, textfont);
          
-         int left=0;
-         int pagewidth=OSDWIDTH-left*2;
+         y+=rowheight;
+         BottomCorners;
+
+         
+         int left=CORNER;
+         int pagewidth=Setup.OSDWidth-left*2;
          int colspace=6;
          int colwidth=(pagewidth+colspace)/3;
          int curcol=0;
+         int currow=0;
          
-         y+=rowheight*2; //enter second display area
+         y+=rowheight; //enter second display area
+         TopCorners;
          
-         int selected;
-         if (menuline<4) selected=menuline*3+menucolumn;
-           else selected=menuline+8;
+         int selected=Selected();
            
-         int itemindex;
-         int x=left;
-         for (itemindex=0; itemindex<=MAXMENUITEM; itemindex++) {
-           int curwidth=menucolwidth[itemindex]*colwidth-colspace;
+         for (int itemindex=0; itemindex<=MAXMENUITEM; itemindex++) {
+           int ipr=itemsperrow[currow];
+           int x=left+curcol*(pagewidth/ipr);
+           if (curcol>0) x+=colspace/2;
+           int curwidth=(pagewidth-(ipr-1)*colspace)/ipr;
            if (itemindex==selected) {
-             background=clrYellow;
-             text=clrBlack;
+             background=clrSelectedBg;
+             text=clrSelectedText;
            } else {
-             background=clrBackground;
-             text=clrYellow;
+             background=clrNormalBg;
+             text=clrNormalText;
            }  
            switch(itemindex) {
              case MI_ENABLEDISABLELIMITS:
@@ -1242,50 +1378,47 @@ void cMainMenuActuator::DisplaySignalInfoOnOsd(void)
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
            }
            osd->DrawText(x,y,buf,text,background,textfont,curwidth,rowheight,
-               curcol==0 ? taDefault : (curcol==1 ? taCenter : taRight));
-           if(itemindex<FIRST_MI_ONECOLUMN) {
-             curcol++;
-             x+=colwidth;
-             if (curcol>2) {
-               y+=rowheight;
-               curcol=0;
-               x=left;
-             }
-           } else {
-             curcol=0;
+               curcol==0 ? taDefault : (curcol==1 && ipr>2 ? taCenter : taRight));
+           curcol++;
+           if (curcol>=itemsperrow[currow]) {
+             currow++;
              y+=rowheight;
-             x=left;
-           }  
+             curcol=0;
+           }
          }
          
-        if (conf==1) osd->DrawText(left,y,tr("Are you sure?"),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
-        else {
+        left=0; 
+        if (conf==1) {
+          snprintf(buf,sizeof(buf),"%s - %s", tr(menucaption[selected]), tr("Are you sure?")); 
+          osd->DrawText(left,y,buf,clrMessageText,clrMessageBg,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
+        } else {
           switch(errormessage) {
             case EM_OUTSIDELIMITS:
               snprintf(buf, sizeof(buf),"%s (0..%d)", tr(outsidelimits), WestLimit);
-              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
+              osd->DrawText(left,y,buf,clrMessageText,clrMessageBg,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               break;
             case EM_ATLIMITS:  
               snprintf(buf, sizeof(buf), "%s (0..%d)", tr(atlimits), WestLimit);
-              osd->DrawText(left,y,buf,clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
+              osd->DrawText(left,y,buf,clrMessageText,clrMessageBg,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               break;
             case EM_NOTPOSITIONED:
-              osd->DrawText(left,y,tr(notpositioned),clrWhite,clrRed,textfont,OSDWIDTH-left-1,rowheight,taCenter);
+              osd->DrawText(left,y,tr(notpositioned),clrMessageText,clrMessageBg,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               break;
             default:  
-              osd->DrawRectangle(left,y,OSDWIDTH,y+rowheight-1,clrTransparent);
+              osd->DrawRectangle(left,y,Setup.OSDWidth,y+rowheight-1,clrBackground);
               if(scanmode!=SM_NONE) {
                 int barwidth;
-                if (scanmode==SM_TRANSPONDER) barwidth=OSDWIDTH*scantime->Elapsed()/10000;
-                else barwidth=OSDWIDTH*(10000*(transponderindex-1)+scantime->Elapsed())/10000/menuvalue[MI_SCANSATELLITE];
-                osd->DrawRectangle(left,y,barwidth,y+rowheight-1,clrBlue);
-                osd->DrawText(left,y,tr(scanning),clrWhite,clrTransparent,textfont,OSDWIDTH-left-1,rowheight,taCenter);
+                if (scanmode==SM_TRANSPONDER) barwidth=Setup.OSDWidth*scantime->Elapsed()/10000;
+                else barwidth=Setup.OSDWidth*(10000*(transponderindex-1)+scantime->Elapsed())/10000/menuvalue[MI_SCANSATELLITE];
+                osd->DrawRectangle(left,y,barwidth,y+rowheight-1,clrProgressBar);
+                osd->DrawText(left,y,tr(scanning),clrProgressText,clrTransparent,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               }
           }  
         }
+        y+=rowheight;
+        BottomCorners;
         osd->Flush();
       }
-      else esyslog("Darn! Couldn't create osd");
 }
 
 void cMainMenuActuator::GetSignalInfo(void)
@@ -1352,6 +1485,60 @@ void cMainMenuActuator::StopScan(void)
      delete SFilter;
 }
 
+int cMainMenuActuator::Selected(void)
+{
+     int s=menucolumn;
+     for (int i=0; i<menuline; i++) s+=itemsperrow[i];
+     //printf("selected %d\n", s);
+     return s;
+}
+
+void cMainMenuActuator::MarkChannels(void)
+{
+      char buffer[1024];
+      buffer[0]='+';
+      Channels.Lock(true);
+      for (cChannel* ch=Channels.First(); ch ; ch = Channels.Next(ch)) {
+        if(ch->Source()==curSource->Code()) {
+          strncpy(buffer+1,ch->Name(),1023);
+          if(buffer[1]!='+') ch->SetName((const char *)buffer, ch->ShortName(), ch->Provider());
+        }          
+      }
+      Channels.Unlock();
+      Channels.Save();
+}
+
+void cMainMenuActuator::UnmarkChannels(void)
+{
+      char buffer[1024];
+      Channels.Lock(true);
+      for (cChannel* ch=Channels.First(); ch ; ch = Channels.Next(ch)) {
+        if(ch->Name() && (ch->Name()[0]=='+'||ch->Name()[0]=='·')) {
+          strncpy(buffer,ch->Name()+1,1023);
+          ch->SetName((const char *)buffer, ch->ShortName(), ch->Provider());
+        }          
+      }
+      Channels.Unlock();
+      Channels.Save();
+}
+
+void cMainMenuActuator::DeleteMarkedChannels(void)
+{
+      Channels.Lock(true);
+      cChannel* ch=Channels.First();
+      while(ch) {
+         cChannel* cnext=Channels.Next(ch);
+         if (ch->Name() && ch->Name()[0]=='+') { 
+           if (OldChannel && OldChannel==ch) OldChannel=NULL;
+           Channels.Del(ch);
+         }  
+         ch=cnext;
+      }
+      Channels.Unlock();
+      Channels.ReNumber();
+      Channels.Save();
+}
+
 // --- cPluginActuator ---------------------------------------------------------
 
 class cPluginActuator : public cPlugin {
@@ -1387,6 +1574,7 @@ cPluginActuator::cPluginActuator(void)
     esyslog("cannot open /dev/actuator");
     exit(1);
   }
+  cThemes::Save("actuator", &Theme);
 }
 
 cPluginActuator::~cPluginActuator()
@@ -1449,10 +1637,12 @@ cMenuSetupPage *cPluginActuator::SetupMenu(void)
 
 bool cPluginActuator::SetupParse(const char *Name, const char *Value)
 {
+  cThemes::Save("actuator", &Theme);
   // Parse your own setup parameters and store their values.
   if      (!strcasecmp(Name, "DVB-Karte"))      DvbKarte = atoi(Value);
   else if (!strcasecmp(Name, "MinRefresh"))     MinRefresh = atoi(Value);
   else if (!strcasecmp(Name, "WestLimit"))      WestLimit = atoi(Value);
+  else if (!strcasecmp(Name, "Theme"))          cThemes::Load("actuator",Value, &Theme);
   else
     return false;
   return true;

@@ -32,6 +32,19 @@ connect the motor accordingly!).
 The soft East Limit (the origin) is always 0, i.e. during normal operation
 the position range is 0..West Limit.
 
+THEMES
+
+The plugins supports color themes to better blend with vdr. The default
+theme uses the same color as the ST:TNG skin, to use the other provided
+themes, copy the *.themes file to your themes directory. I provide themes
+for the following skins
+
+-Enigma
+-Enigma with the Dark Blue theme
+-Elchi
+
+but you can write your own since these are standard vdr themes for a fake
+"actuator" skin.
 
 SETUP MENU
 
@@ -42,7 +55,6 @@ You can also set a minimum screen refresh time (in ms) that will be used in
 the plugin main menu: I found that, with a dxr3, if you refresh the screen
 too often the osd gets garbled. I set it to 250 for my dxr3. Note that too
 low a value will cause high cpu usage. 
-
 
 MAIN MENU
 
@@ -109,7 +121,27 @@ represents the satellite position in tenths of degree, eg. for
 28.2E the filename will be 0282.ini, for 30.0W the filename will be 3300.ini
 (i.e. (360.0-30.0)*10).
 The file format is the same as the channelscan plugin, which in turn claims
-to use the same format as the windows program prog-dvb. 
+to use the same format as the windows program prog-dvb.
+
+MARKING CHANNELS
+
+Channel marking is an aid in finding stale channel entries.
+Marking a channel means prepending a "+" to its name, if, during a
+transponder or satellite scan, a channel is found the "+" will be removed,
+so the channels that still have a "+" in the name haven't been found during
+a scan (note that this doesn't mean the channel is invalid, so check them
+before deleting them).
+
+The button "Mark channels" will mark all channels belonging to the currently
+selected satellite, "Unmark channels" and "Delete marked channels" will
+allow you to either remove the mark from all the channels or delete all
+marked channels (regardless of the satellite they belong to).
+
+Note that this isn't a foolproof method to remove stale channels (e.g. I
+cannot seem to find many spanish channels with a channels scan even if
+they're regularly broadcasting, spaniards in power are allergic to
+standards) so double and triple check before hitting the "Delete marked
+channels" button.
 
 POSITION DISPLAY
 

@@ -25,3 +25,25 @@ modprobe parport_pc io=0x378 irq=7
 
 If you don't do so, when you load this module it will complain that it
 didn't find an interrupt for the port (look at dmesg output).
+
+WARNING WARNING WARNING WARNING WARNING WARNING WARNING
+
+Frank Welter <frank.welter at skynet dot be> lost many hours of sleep
+because the module was counting pulses even with nothing connected to the
+parallel port. It turns out that there's a problem with some motherboards
+and the pic (Programmable Interrupt Controller) that generates bogus
+interrupts on irq 7. The problem is best explained here:
+
+http://groups-beta.google.com/group/linux.kernel/messages/12fe109073f549e7
+
+You can workaround this problem by assigning a different irq (e.g. 5) to
+your parallel port (if the parallel port is integrated in the motherboard
+look in the bios setup). Note that this interrupt cannot be shared, i.e. it
+must be exclusively assigned to the parallel port.
+If you also have to assign a non stantard address (i.e. not 0x378), you'll
+have to tell the actuator module the address. Let's say you set your
+parallel port at 0x278, irq 5:
+
+modprobe parport_pc io=0x278 irq=5
+insmod actuator.ko base=0x278
+
