@@ -49,9 +49,22 @@
 #include <linux/ioctl.h>
 #include <asm/uaccess.h>
 #include <linux/device.h>
+#include <linux/version.h>
 #include "actuator.h"
 
 #define DRIVER_NAME "actuator"
+
+/* compatibility defines */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,13)
+# define class_device_create(a, b, c, d, e, f, g, h) class_simple_device_add(a, c, d, e, f, g, h)
+# define class_device_destroy(a, b) class_simple_device_remove(b)
+# define class_create(a, b) class_simple_create(a, b)
+# define class_destroy(a) class_simple_destroy(a)
+#else
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
+# define class_device_create(a, b, c, d, e, f, g, h) class_device_create(a, c, d, e, f, g, h)
+#endif
+#endif
 
 /* direction */
 enum direction {
@@ -68,13 +81,17 @@ int major;
 
 struct parport *pport;
 struct pardevice *ppdevice;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,13)
+struct class_simple *actuator_class;
+#else
 struct class *actuator_class;
+#endif
 
 /* timer, used as a delay for position reached/direction changed */
 
 static struct timer_list timer;
 static int stopping;
-#if TESTSIGNAL
+#ifdef TESTSIGNAL
 /* generates a signal on pin 4 for testing with no real hardware 
    (connect pin 4 to pin 10) */
 static struct timer_list testsignalt;
@@ -182,7 +199,7 @@ static void actuator_timer (unsigned long cookie)
   write_unlock(&lock);
 }  
 
-#if TESTSIGNAL
+#ifdef TESTSIGNAL
 static void testsignal_timer (unsigned long cookie)
 {
   write_lock(&lock);
@@ -368,7 +385,7 @@ int actuator_init(void)
 
     stopping = 0;
     
-#if TESTSIGNAL
+#ifdef TESTSIGNAL
     init_timer(&testsignalt);
     testsignalt.function=testsignal_timer;
     testsignal = 0;
@@ -393,7 +410,7 @@ void actuator_cleanup(void)
     write_unlock_irqrestore(&lock,flags);
 
     del_timer_sync(&timer);
-#if TESTSIGNAL
+#ifdef TESTSIGNAL
     del_timer_sync(&testsignalt);
 #endif        
     

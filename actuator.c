@@ -27,7 +27,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.4";
+static const char *VERSION        = "1.0.5";
 static const char *DESCRIPTION    = "Linear or h-h actuator control";
 static const char *MAINMENUENTRY  = "Actuator";
 

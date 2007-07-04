@@ -299,7 +299,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Vpid:",                                     //Catalan
-    "",                                          //Russian
+    "Vpid:",                                     //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -320,7 +320,7 @@ const tI18nPhrase Phrases[] = {
     "",                                          //Romanian
     "",                                          //Hugarian
     "Apid:",                                     //Catalan
-    "",                                          //Russian
+    "Apid:",                                     //Russian
     "",                                          //Croatian
     "",                                          //Eesti
     "",                                          //Dansk
@@ -699,7 +699,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Tarja connectada al motor",                //Catalan
-    "Карта соединена с двигателем",             //Russian
+    "Карта подключена к двигателю",             //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -741,7 +741,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Visualitzar moviments",                    //Catalan
-    "",                                         //Russian
+    "Показать движение зеркала",                //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk
@@ -825,7 +825,7 @@ const tI18nPhrase Phrases[] = {
     "",                                         //Romanian
     "",                                         //Hugarian
     "Tarja no disponible",                      //Catalan
-    "",                                         //Russian
+    "Карта не доступна",                        //Russian
     "",                                         //Croatian
     "",                                         //Eesti
     "",                                         //Dansk

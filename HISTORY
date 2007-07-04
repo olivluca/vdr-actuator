@@ -1,5 +1,9 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+XXXX-XX-XX: Version 1.0.5
+- Updated russian translation from Vladimir Monchenko <bob at globall ru>
+- Compatibility defines in module.c and remove patches
+
 2007-06-24: Version 1.0.4
 - check the CardIndex to identify the selected card in the main menu instead
   of relying on cDevice::GetDevice(index)
