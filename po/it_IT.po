@@ -1,0 +1,183 @@
+# VDR plugin language source file.
+# Copyright (C) 2007 Klaus Schmidinger <kls@cadsoft.de>
+# This file is distributed under the same license as the VDR package.
+# Alberto Carraro <bertocar@tin.it>, 2001
+# Antonio Ospite <ospite@studenti.unina.it>, 2003
+# Sean Carlos <seanc@libero.it>, 2005
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: VDR 1.5.7\n"
+"Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
+"POT-Creation-Date: 2007-08-19 17:07+0200\n"
+"PO-Revision-Date: 2007-08-12 15:55+0200\n"
+"Last-Translator: Sean Carlos <seanc@libero.it>\n"
+"Language-Team: <vdr@linuxtv.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=ISO-8859-15\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: actuator.c:30
+msgid "Linear or h-h actuator control"
+msgstr "Controlla un attuatore lineare o h-h"
+
+#: actuator.c:31
+msgid "Actuator"
+msgstr "Attuatore"
+
+#: actuator.c:72
+msgid "Drive East"
+msgstr "Muove a Est"
+
+#: actuator.c:72
+msgid "Drive West"
+msgstr "Muove a Ovest"
+
+#: actuator.c:72
+msgid "Halt"
+msgstr "Ferma"
+
+#: actuator.c:73
+#, c-format
+msgid "Goto %d"
+msgstr "Va a %d"
+
+#: actuator.c:73
+msgid "Recalc"
+msgstr "Ricalcola"
+
+#: actuator.c:73
+msgid "Store"
+msgstr "Memorizza"
+
+#: actuator.c:74
+#, c-format
+msgid "%d Steps East"
+msgstr "%d Passi Est"
+
+#: actuator.c:74
+#, c-format
+msgid "%d Steps West"
+msgstr "%d Passi Ovest"
+
+#: actuator.c:75
+msgid "Set East Limit"
+msgstr "Imposta Limite Est"
+
+#: actuator.c:75
+msgid "Set West Limit"
+msgstr "Imposta Limite Ovest"
+
+#: actuator.c:75
+msgid "Set Zero"
+msgstr "Messa a zero"
+
+#: actuator.c:77
+msgid "Frequency:"
+msgstr "Frequenza:"
+
+#: actuator.c:78
+msgid "Symbolrate:"
+msgstr "Symbolrate:"
+
+#: actuator.c:79
+msgid "Vpid:"
+msgstr "Vpid:"
+
+#: actuator.c:80
+msgid "Apid:"
+msgstr "Apid:"
+
+#: actuator.c:81
+msgid "Scan Transponder"
+msgstr "Scansione Transponder"
+
+#: actuator.c:82
+msgid "Scan Satellite"
+msgstr "Scansione Satellite"
+
+#: actuator.c:83
+msgid "Delete marked channels"
+msgstr "Cancella canali marcati"
+
+#: actuator.c:83
+msgid "Mark channels"
+msgstr "Marca canali"
+
+#: actuator.c:83
+msgid "Unmark channels"
+msgstr "Smarca canali"
+
+#: actuator.c:85
+msgid "Enable Limits"
+msgstr "Attiva Limiti"
+
+#: actuator.c:86
+msgid "Disable Limits"
+msgstr "Disattiva Limiti"
+
+#: actuator.c:105
+#, c-format
+msgid "Dish target: %d, position: %d"
+msgstr "Obbiettivo: %d, posizione: %d"
+
+#: actuator.c:106
+#, c-format
+msgid "Channels found: %d, new: %d"
+msgstr "Canali trovati: %d, nuovi: %d"
+
+#: actuator.c:107
+msgid "Position reached"
+msgstr "Posizione raggiunta"
+
+#: actuator.c:108
+msgid "Motor wait"
+msgstr "Attesa motore"
+
+#: actuator.c:109
+msgid "Motor error"
+msgstr "Errore motore"
+
+#: actuator.c:110
+msgid "Position not set"
+msgstr "Posizione non impostata"
+
+#: actuator.c:111
+msgid "Not positioned"
+msgstr "Non posizionato"
+
+#: actuator.c:112
+msgid "Dish at limits"
+msgstr "Raggiunto limite"
+
+#: actuator.c:113
+msgid "Position outside limits"
+msgstr "Posizione fuori dai limiti"
+
+#: actuator.c:114
+msgid "Scanning, press any key to stop"
+msgstr "Scansionando, premi un tasto per interrompere"
+
+#: actuator.c:485
+msgid "Card connected with motor"
+msgstr "Scheda collegata al motore"
+
+#: actuator.c:486
+msgid "Min. screen refresh time (ms)"
+msgstr "Tempo min.aggiornam.schermo (ms)"
+
+#: actuator.c:487
+msgid "Show dish moving"
+msgstr "Visualizzare movimenti"
+
+#: actuator.c:489
+msgid "Setup.OSD$Theme"
+msgstr ""
+
+#: actuator.c:781
+msgid "Card not available"
+msgstr "Scheda non disponibile"
+
+#: actuator.c:1402
+msgid "Are you sure?"
+msgstr "Sei sicuro?"

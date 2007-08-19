@@ -52,7 +52,7 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o i18n.o filter.o
+OBJS = $(PLUGIN).o filter.o
 
 ### Implicit rules:
 .PHONY: all all-redirect
@@ -70,9 +70,34 @@ $(DEPFILE): Makefile
 
 -include $(DEPFILE)
 
+### Internationalization (I18N):
+
+PODIR     = po
+LOCALEDIR = $(VDRDIR)/locale
+I18Npo    = $(wildcard $(PODIR)/*.po)
+I18Nmo    = $(addsuffix .mo, $(foreach file, $(I18Npo), $(basename $(file))))
+I18Ndirs  = $(notdir $(foreach file, $(I18Npo), $(basename $(file))))
+I18Npot   = $(PODIR)/$(PLUGIN).pot
+
+%.mo: %.po
+	msgfmt -c -o $@ $<
+
+$(I18Npot): $(wildcard *.c)
+	xgettext -C -cTRANSLATORS --no-wrap -F -k -ktr -ktrNOOP --msgid-bugs-address='<luca@ventoso.org>' -o $@ $(wildcard *.c)
+
+$(I18Npo): $(I18Npot)
+	msgmerge -U --no-wrap -F --backup=none -q $@ $<
+
+i18n: $(I18Nmo)
+	@mkdir -p $(LOCALEDIR)
+	for i in $(I18Ndirs); do\
+	    mkdir -p $(LOCALEDIR)/$$i/LC_MESSAGES;\
+	    cp $(PODIR)/$$i.mo $(LOCALEDIR)/$$i/LC_MESSAGES/vdr-$(PLUGIN).mo;\
+	    done
+
 ### Targets:
 
-all: libvdr-$(PLUGIN).so
+all: libvdr-$(PLUGIN).so i18n
 
 libvdr-$(PLUGIN).so: $(OBJS)
 	$(CXX) $(CXXFLAGS) -shared $(OBJS) -o $@
@@ -89,5 +114,6 @@ dist:
 	@echo Distribution package created as $(PACKAGE).tgz
 
 clean:
+	@-rm -f $(PODIR)/*.mo $(PODIR)/*.pot
 	@-rm -f $(OBJS) $(DEPFILE) *.so *.tgz core* *~
 	@make -C module clean

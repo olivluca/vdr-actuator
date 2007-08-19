@@ -1,5 +1,8 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2007-08-19: Version 1.1.0
+- Adapted to new localization method in vdr-1.5.7
+
 2007-08-12: Version 1.0.5
 - Updated russian translation from Vladimir Monchenko <bob at globall ru>
 - Compatibility defines in module.c and remove patches

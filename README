@@ -1,13 +1,21 @@
 This is a "plugin" for the Video Disk Recorder (VDR).
 
 Written by:                  Luca Olivetti <luca@olivetti.cjb.net>
+
+Project's homepage:          http://ventoso.org/luca/vdr/
+
+
 Pieces of code and inspiration taken from the rotor plugin by  
 Thomas Bergwinkl <Thomas.Bergwinkl@t-online.de>
 
 
-See the file COPYING for license information.
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+See the file COPYING for more information.
 
-THIS PLUGINS NEEDS vdr >= 1.3.47 (including 1.4.X and the experimental 1.5.X)
+THIS VERSION OF THE PLUGIN IS FOR vdr >= 1.5.8
 
 DESCRIPTION
 

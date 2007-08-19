@@ -22,14 +22,13 @@
 #include <vdr/pat.h>
 #include <math.h>
 #include "filter.h"
-#include "i18n.h"
 #include "module/actuator.h"
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.0.5";
-static const char *DESCRIPTION    = "Linear or h-h actuator control";
-static const char *MAINMENUENTRY  = "Actuator";
+static const char *VERSION        = "1.1.0";
+static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
+static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
 //Selectable buttons on the plugin menu: indexes
 enum menuindex {
@@ -70,21 +69,21 @@ static const int itemsperrow[] = {
 
 //Selectable buttons on the plugin menu: captions
 static const char *menucaption[] = { 
-                                   "Drive East", "Halt", "Drive West",
-                                   "Recalc","Goto %d","Store",
-                                   "%d Steps East","*","%d Steps West",
-                                   "Set East Limit","Set Zero", "Set West Limit",
+                                   trNOOP("Drive East"), trNOOP("Halt"), trNOOP("Drive West"),
+                                   trNOOP("Recalc"),trNOOP("Goto %d"),trNOOP("Store"),
+                                   trNOOP("%d Steps East"),"*",trNOOP("%d Steps West"),
+                                   trNOOP("Set East Limit"),trNOOP("Set Zero"), trNOOP("Set West Limit"),
                                    "", //Sat position
-                                   "Frequency:",
-                                   "Symbolrate:",
-                                   "Vpid:",
-                                   "Apid:",
-                                   "Scan Transponder",
-                                   "Scan Satellite",
-                                   "Mark channels", "Unmark channels", "Delete marked channels"
+                                   trNOOP("Frequency:"),
+                                   trNOOP("Symbolrate:"),
+                                   trNOOP("Vpid:"),
+                                   trNOOP("Apid:"),
+                                   trNOOP("Scan Transponder"),
+                                   trNOOP("Scan Satellite"),
+                                   trNOOP("Mark channels"), trNOOP("Unmark channels"), trNOOP("Delete marked channels")
                                   };
-#define ENABLELIMITS "Enable Limits"
-#define DISABLELIMITS "Disable Limits"
+#define ENABLELIMITS trNOOP("Enable Limits")
+#define DISABLELIMITS trNOOP("Disable Limits")
                                   
 //Number of allowed input digits for each menu item                                  
 static const int menudigits[] = {
@@ -103,16 +102,16 @@ static const int menudigits[] = {
                                    };                                  
 
 //Dish messages
-#define dishmoving    "Dish target: %d, position: %d"
-#define channelsfound "Channels found: %d, new: %d"
-#define dishreached   "Position reached"
-#define dishwait      "Motor wait"
-#define disherror     "Motor error"
-#define dishnopos     "Position not set"
-#define notpositioned "Not positioned"
-#define atlimits      "Dish at limits"
-#define outsidelimits "Position outside limits"
-#define scanning      "Scanning, press any key to stop"
+#define dishmoving    trNOOP("Dish target: %d, position: %d")
+#define channelsfound trNOOP("Channels found: %d, new: %d")
+#define dishreached   trNOOP("Position reached")
+#define dishwait      trNOOP("Motor wait")
+#define disherror     trNOOP("Motor error")
+#define dishnopos     trNOOP("Position not set")
+#define notpositioned trNOOP("Not positioned")
+#define atlimits      trNOOP("Dish at limits")
+#define outsidelimits trNOOP("Position outside limits")
+#define scanning      trNOOP("Scanning, press any key to stop")
 
 //Positioning tolerance
 //(for transponder scanning and restore of Setup.UpdateChannels)
@@ -1644,7 +1643,6 @@ bool cPluginActuator::Start(void)
   // Start any background activities the plugin shall perform.
   SatPositions.Load(AddDirectory(ConfigDirectory(), "actuator.conf"));
   statusMonitor = new cStatusMonitor;
-  RegisterI18n(Phrases);
   return true;
 }
 
