@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-08-19 17:07+0200\n"
+"POT-Creation-Date: 2007-11-04 18:16+0100\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Maarten Wisse <Maarten.Wisse@urz.uni-hd.de>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -17,167 +17,127 @@ msgstr ""
 "Content-Type: text/plain; charset=ISO-8859-15\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: actuator.c:30
 msgid "Linear or h-h actuator control"
 msgstr "Lineair of h-h actuator controle"
 
-#: actuator.c:31
 msgid "Actuator"
 msgstr "Actuator"
 
-#: actuator.c:72
 msgid "Drive East"
 msgstr "Draai naar Oost"
 
-#: actuator.c:72
-msgid "Drive West"
-msgstr "Draai naar West"
-
-#: actuator.c:72
 msgid "Halt"
 msgstr "Halt"
 
-#: actuator.c:73
+msgid "Drive West"
+msgstr "Draai naar West"
+
+msgid "Recalc"
+msgstr "Hercalculeer"
+
 #, c-format
 msgid "Goto %d"
 msgstr "Ga naar %d"
 
-#: actuator.c:73
-msgid "Recalc"
-msgstr "Hercalculeer"
-
-#: actuator.c:73
 msgid "Store"
 msgstr "Opslaan"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps East"
 msgstr "%d Stappen Oost"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps West"
 msgstr "%d Stappen West"
 
-#: actuator.c:75
 msgid "Set East Limit"
 msgstr "Zet Limiet Oost"
 
-#: actuator.c:75
-msgid "Set West Limit"
-msgstr "Zet Limiet West"
-
-#: actuator.c:75
 msgid "Set Zero"
 msgstr "Zet op Nul"
 
-#: actuator.c:77
+msgid "Set West Limit"
+msgstr "Zet Limiet West"
+
 msgid "Frequency:"
 msgstr "Frequentie:"
 
-#: actuator.c:78
 msgid "Symbolrate:"
 msgstr "Symbolrate:"
 
-#: actuator.c:79
 msgid "Vpid:"
 msgstr "Vpid:"
 
-#: actuator.c:80
 msgid "Apid:"
 msgstr "Apid:"
 
-#: actuator.c:81
 msgid "Scan Transponder"
 msgstr "Scan Transponder"
 
-#: actuator.c:82
 msgid "Scan Satellite"
 msgstr "Scan satelliet"
 
-#: actuator.c:83
-msgid "Delete marked channels"
-msgstr ""
-
-#: actuator.c:83
 msgid "Mark channels"
 msgstr ""
 
-#: actuator.c:83
 msgid "Unmark channels"
 msgstr ""
 
-#: actuator.c:85
+msgid "Delete marked channels"
+msgstr ""
+
 msgid "Enable Limits"
 msgstr "Activeer Limiet"
 
-#: actuator.c:86
 msgid "Disable Limits"
 msgstr "De-activeer Limiet"
 
-#: actuator.c:105
 #, c-format
 msgid "Dish target: %d, position: %d"
 msgstr "Schotel doel: %d, positie: %d"
 
-#: actuator.c:106
 #, c-format
 msgid "Channels found: %d, new: %d"
 msgstr "Kanalen gevonden: %d, nieuw: %d"
 
-#: actuator.c:107
 msgid "Position reached"
 msgstr "Positie gehaald"
 
-#: actuator.c:108
 msgid "Motor wait"
 msgstr "Motor wacht"
 
-#: actuator.c:109
 msgid "Motor error"
 msgstr "Motorstoring"
 
-#: actuator.c:110
 msgid "Position not set"
 msgstr "Positie niet gezet"
 
-#: actuator.c:111
 msgid "Not positioned"
 msgstr "Niet gepositioneerd"
 
-#: actuator.c:112
 msgid "Dish at limits"
 msgstr "Schotel op zijn limiet"
 
-#: actuator.c:113
 msgid "Position outside limits"
 msgstr "Positie buiten de limieten"
 
-#: actuator.c:114
 msgid "Scanning, press any key to stop"
 msgstr "Scannen, druk op een knop om te stoppen"
 
-#: actuator.c:485
 msgid "Card connected with motor"
 msgstr "Kaart, verbonden met motor"
 
-#: actuator.c:486
 msgid "Min. screen refresh time (ms)"
 msgstr "Min. scherm ververstijd (ms)"
 
-#: actuator.c:487
 msgid "Show dish moving"
 msgstr ""
 
-#: actuator.c:489
 msgid "Setup.OSD$Theme"
 msgstr ""
 
-#: actuator.c:781
 msgid "Card not available"
 msgstr ""
 
-#: actuator.c:1402
 msgid "Are you sure?"
 msgstr "Weet u het zeker"

@@ -26,7 +26,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.1.0";
+static const char *VERSION        = "1.1.1";
 static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
 static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
@@ -1454,11 +1454,17 @@ void cMainMenuActuator::Tune(bool live)
 {
       int Apids[MAXAPIDS + 1] = { 0 };
       int Dpids[MAXDPIDS + 1] = { 0 };
+      int Spids[MAXSPIDS + 1] = { 0 };
       char ALangs[MAXAPIDS+1][MAXLANGCODE2]={ "" };
       char DLangs[MAXDPIDS+1][MAXLANGCODE2]={ "" };
+      char SLangs[MAXSPIDS+1][MAXLANGCODE2] = { "" };
       Apids[0]=menuvalue[MI_APID];
-      SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs,0);
-      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO);
+      SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0);
+      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO
+ #if APIVERSNUM == 10514
+      , DVBFE_MOD_QPSK, DVBFE_DELSYS_DVBS, DVBFE_ROLLOFF_UNKNOWN  //FIXME, this won't surely work with dvb-s2
+ #endif     
+      );
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;
       if (HasSwitched && live) {
         if (cDevice::GetDevice(SChannel,0

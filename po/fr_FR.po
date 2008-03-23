@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-08-19 17:07+0200\n"
+"POT-Creation-Date: 2007-11-04 18:16+0100\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Nicolas Huillard <nhuillard@e-dition.fr>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -18,167 +18,127 @@ msgstr ""
 "Content-Type: text/plain; charset=ISO-8859-1\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: actuator.c:30
 msgid "Linear or h-h actuator control"
 msgstr ""
 
-#: actuator.c:31
 msgid "Actuator"
 msgstr ""
 
-#: actuator.c:72
 msgid "Drive East"
 msgstr "Aller Est"
 
-#: actuator.c:72
-msgid "Drive West"
-msgstr "Aller Ouest"
-
-#: actuator.c:72
 msgid "Halt"
 msgstr "Arrêt"
 
-#: actuator.c:73
+msgid "Drive West"
+msgstr "Aller Ouest"
+
+msgid "Recalc"
+msgstr "Recalc"
+
 #, c-format
 msgid "Goto %d"
 msgstr "Aller à %d"
 
-#: actuator.c:73
-msgid "Recalc"
-msgstr "Recalc"
-
-#: actuator.c:73
 msgid "Store"
 msgstr "Enregistrer"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps East"
 msgstr "%d Incrément Est"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps West"
 msgstr "%d Incrément Ouest"
 
-#: actuator.c:75
 msgid "Set East Limit"
 msgstr "Fixer Limite Est"
 
-#: actuator.c:75
-msgid "Set West Limit"
-msgstr "Fixer Limite Ouest"
-
-#: actuator.c:75
 msgid "Set Zero"
 msgstr ""
 
-#: actuator.c:77
+msgid "Set West Limit"
+msgstr "Fixer Limite Ouest"
+
 msgid "Frequency:"
 msgstr "Fréquence:"
 
-#: actuator.c:78
 msgid "Symbolrate:"
 msgstr "SymbolRate:"
 
-#: actuator.c:79
 msgid "Vpid:"
 msgstr "Vpid:"
 
-#: actuator.c:80
 msgid "Apid:"
 msgstr "Apid:"
 
-#: actuator.c:81
 msgid "Scan Transponder"
 msgstr "Scanner Transpondeur"
 
-#: actuator.c:82
 msgid "Scan Satellite"
 msgstr ""
 
-#: actuator.c:83
-msgid "Delete marked channels"
-msgstr ""
-
-#: actuator.c:83
 msgid "Mark channels"
 msgstr ""
 
-#: actuator.c:83
 msgid "Unmark channels"
 msgstr ""
 
-#: actuator.c:85
+msgid "Delete marked channels"
+msgstr ""
+
 msgid "Enable Limits"
 msgstr "Activer Limites"
 
-#: actuator.c:86
 msgid "Disable Limits"
 msgstr "Désactiver Limites"
 
-#: actuator.c:105
 #, c-format
 msgid "Dish target: %d, position: %d"
 msgstr ""
 
-#: actuator.c:106
 #, c-format
 msgid "Channels found: %d, new: %d"
 msgstr ""
 
-#: actuator.c:107
 msgid "Position reached"
 msgstr ""
 
-#: actuator.c:108
 msgid "Motor wait"
 msgstr ""
 
-#: actuator.c:109
 msgid "Motor error"
 msgstr ""
 
-#: actuator.c:110
 msgid "Position not set"
 msgstr ""
 
-#: actuator.c:111
 msgid "Not positioned"
 msgstr ""
 
-#: actuator.c:112
 msgid "Dish at limits"
 msgstr ""
 
-#: actuator.c:113
 msgid "Position outside limits"
 msgstr ""
 
-#: actuator.c:114
 msgid "Scanning, press any key to stop"
 msgstr ""
 
-#: actuator.c:485
 msgid "Card connected with motor"
 msgstr "Carte, connectée au moteur"
 
-#: actuator.c:486
 msgid "Min. screen refresh time (ms)"
 msgstr ""
 
-#: actuator.c:487
 msgid "Show dish moving"
 msgstr ""
 
-#: actuator.c:489
 msgid "Setup.OSD$Theme"
 msgstr ""
 
-#: actuator.c:781
 msgid "Card not available"
 msgstr ""
 
-#: actuator.c:1402
 msgid "Are you sure?"
 msgstr "Etes vous sur?"

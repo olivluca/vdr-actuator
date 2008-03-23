@@ -18,7 +18,7 @@ VERSION = $(shell grep 'static const char \*VERSION *=' $(PLUGIN).c | awk '{ pri
 ### The C++ compiler and options:
 
 CXX      ?= g++
-CXXFLAGS ?= -O2 -Wall -Woverloaded-virtual
+CXXFLAGS ?= -O2 -Wall -Woverloaded-virtual -Wno-parentheses
 
 ### The directory environment:
 
@@ -75,25 +75,26 @@ $(DEPFILE): Makefile
 PODIR     = po
 LOCALEDIR = $(VDRDIR)/locale
 I18Npo    = $(wildcard $(PODIR)/*.po)
-I18Nmo    = $(addsuffix .mo, $(foreach file, $(I18Npo), $(basename $(file))))
-I18Ndirs  = $(notdir $(foreach file, $(I18Npo), $(basename $(file))))
+I18Npo    = $(wildcard $(PODIR)/*.po)
+I18Nmsgs  = $(addprefix $(LOCALEDIR)/, $(addsuffix /LC_MESSAGES/vdr-$(PLUGIN).mo, $(notdir $(foreach file, $(I18Npo), $(basename $(file))))))
 I18Npot   = $(PODIR)/$(PLUGIN).pot
 
 %.mo: %.po
 	msgfmt -c -o $@ $<
 
 $(I18Npot): $(wildcard *.c)
-	xgettext -C -cTRANSLATORS --no-wrap -F -k -ktr -ktrNOOP --msgid-bugs-address='<luca@ventoso.org>' -o $@ $(wildcard *.c)
+	xgettext -C -cTRANSLATORS --no-wrap --no-location -k -ktr -ktrNOOP --msgid-bugs-address='<luca@ventoso.org>' -o $@ $(wildcard *.c)
 
-$(I18Npo): $(I18Npot)
-	msgmerge -U --no-wrap -F --backup=none -q $@ $<
+%.po: $(I18Npot)
+	msgmerge -U --no-wrap --no-location --backup=none -q $@ $<
+	@touch $@
 
-i18n: $(I18Nmo)
-	@mkdir -p $(LOCALEDIR)
-	for i in $(I18Ndirs); do\
-	    mkdir -p $(LOCALEDIR)/$$i/LC_MESSAGES;\
-	    cp $(PODIR)/$$i.mo $(LOCALEDIR)/$$i/LC_MESSAGES/vdr-$(PLUGIN).mo;\
-	    done
+$(I18Nmsgs): $(LOCALEDIR)/%/LC_MESSAGES/vdr-$(PLUGIN).mo: $(PODIR)/%.mo
+	@mkdir -p $(dir $@)
+	cp $< $@
+
+.PHONY: i18n
+i18n: $(I18Nmsgs) $(I18Npot)
 
 ### Targets:
 

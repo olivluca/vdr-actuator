@@ -1,5 +1,9 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+2008-03-23: Version 1.1.1
+- Changes in SetPids call to adapt to vdr >= 1.5.11
+- Added -Wno-parentheses to compiler options 
+
 2007-08-19: Version 1.1.0
 - Adapted to new localization method in vdr-1.5.7
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-08-19 17:07+0200\n"
+"POT-Creation-Date: 2007-11-04 18:16+0100\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Vyacheslav Dikonov <sdiconov@mail.ru>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -15,167 +15,127 @@ msgstr ""
 "Content-Type: text/plain; charset=ISO-8859-5\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: actuator.c:30
 msgid "Linear or h-h actuator control"
 msgstr "Линейное или гор.-гор. управление актуатором"
 
-#: actuator.c:31
 msgid "Actuator"
 msgstr "Актуатор"
 
-#: actuator.c:72
 msgid "Drive East"
 msgstr "На Восток"
 
-#: actuator.c:72
-msgid "Drive West"
-msgstr "На Запад"
-
-#: actuator.c:72
 msgid "Halt"
 msgstr "Стоп"
 
-#: actuator.c:73
+msgid "Drive West"
+msgstr "На Запад"
+
+msgid "Recalc"
+msgstr "Пересчитать"
+
 #, c-format
 msgid "Goto %d"
 msgstr "Перейти на %d"
 
-#: actuator.c:73
-msgid "Recalc"
-msgstr "Пересчитать"
-
-#: actuator.c:73
 msgid "Store"
 msgstr "Запомнить"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps East"
 msgstr "%d шаг на Восток"
 
-#: actuator.c:74
 #, c-format
 msgid "%d Steps West"
 msgstr "%d шаг на Запад"
 
-#: actuator.c:75
 msgid "Set East Limit"
 msgstr "Восточный предел"
 
-#: actuator.c:75
-msgid "Set West Limit"
-msgstr "Западный предел"
-
-#: actuator.c:75
 msgid "Set Zero"
 msgstr "Установка нуля"
 
-#: actuator.c:77
+msgid "Set West Limit"
+msgstr "Западный предел"
+
 msgid "Frequency:"
 msgstr "Частота:"
 
-#: actuator.c:78
 msgid "Symbolrate:"
 msgstr "Симв. скорость:"
 
-#: actuator.c:79
 msgid "Vpid:"
 msgstr "Vpid:"
 
-#: actuator.c:80
 msgid "Apid:"
 msgstr "Apid:"
 
-#: actuator.c:81
 msgid "Scan Transponder"
 msgstr "Сканирование передатчика"
 
-#: actuator.c:82
 msgid "Scan Satellite"
 msgstr "Сканирование спутника"
 
-#: actuator.c:83
-msgid "Delete marked channels"
-msgstr "Удалить помеченное"
-
-#: actuator.c:83
 msgid "Mark channels"
 msgstr "Пометить каналы"
 
-#: actuator.c:83
 msgid "Unmark channels"
 msgstr "Снять пометку"
 
-#: actuator.c:85
+msgid "Delete marked channels"
+msgstr "Удалить помеченное"
+
 msgid "Enable Limits"
 msgstr "Вкл. ограничения"
 
-#: actuator.c:86
 msgid "Disable Limits"
 msgstr "Выкл. ограничения"
 
-#: actuator.c:105
 #, c-format
 msgid "Dish target: %d, position: %d"
 msgstr "Направление зеркала: %d, позиция %d"
 
-#: actuator.c:106
 #, c-format
 msgid "Channels found: %d, new: %d"
 msgstr "Найдено каналов: %d, новых: %d"
 
-#: actuator.c:107
 msgid "Position reached"
 msgstr "Позиция установлена"
 
-#: actuator.c:108
 msgid "Motor wait"
 msgstr "Ожидание двигателя"
 
-#: actuator.c:109
 msgid "Motor error"
 msgstr "Ошибка двигателя"
 
-#: actuator.c:110
 msgid "Position not set"
 msgstr "Позиция не задана"
 
-#: actuator.c:111
 msgid "Not positioned"
 msgstr "Не установлено"
 
-#: actuator.c:112
 msgid "Dish at limits"
 msgstr "Зеркало на границе"
 
-#: actuator.c:113
 msgid "Position outside limits"
 msgstr "Позиция вне допустимых пределов"
 
-#: actuator.c:114
 msgid "Scanning, press any key to stop"
 msgstr "Сканирование, нажмите любую кнопку для остановки"
 
-#: actuator.c:485
 msgid "Card connected with motor"
 msgstr "Карта подключена к двигателю"
 
-#: actuator.c:486
 msgid "Min. screen refresh time (ms)"
 msgstr "Мин. время обновления экрана (mc)"
 
-#: actuator.c:487
 msgid "Show dish moving"
 msgstr "Показать движение зеркала"
 
-#: actuator.c:489
 msgid "Setup.OSD$Theme"
 msgstr ""
 
-#: actuator.c:781
 msgid "Card not available"
 msgstr "Карта не доступна"
 
-#: actuator.c:1402
 msgid "Are you sure?"
 msgstr "Вы уверены?"
