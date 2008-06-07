@@ -1461,7 +1461,7 @@ void cMainMenuActuator::Tune(bool live)
       Apids[0]=menuvalue[MI_APID];
       SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO
- #if APIVERSNUM == 10514
+ #if (APIVERSNUM == 10514 || APIVERSNUM >= 10700)
       , DVBFE_MOD_QPSK, DVBFE_DELSYS_DVBS, DVBFE_ROLLOFF_UNKNOWN  //FIXME, this won't surely work with dvb-s2
  #endif     
       );
