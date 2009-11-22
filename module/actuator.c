@@ -32,7 +32,6 @@
  *
  */
 
-#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/sched.h>
@@ -64,6 +63,12 @@
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
 # define class_device_create(a, b, c, d, e, f, g, h) class_device_create(a, c, d, e, f, g, h)
 #endif
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
+/* on older kernels, class_device_create will in turn be a compat macro */
+# define device_create(a, b, c, d, e) class_device_create(a, b, c, d, e)
+# define device_destroy(a ,b) class_device_destroy(a,b)
 #endif
 
 /* direction */
@@ -294,7 +299,11 @@ struct file_operations actuator_fops = {
     ioctl: actuator_ioctl,
 };
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
 void actuator_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+#else
+void actuator_interrupt(void *private)
+#endif
 {
 	write_lock(&lock);
 	if (stopping) {
@@ -374,7 +383,7 @@ int actuator_init(void)
      devfs_mk_cdev(MKDEV(major, 0), S_IFCHR | S_IRUSR | S_IWUSR, DRIVER_NAME);
 #endif     
      actuator_class = class_create(THIS_MODULE, DRIVER_NAME);
-     class_device_create(actuator_class,NULL,MKDEV(major,0),NULL,DRIVER_NAME);
+     device_create(actuator_class,NULL,MKDEV(major,0),NULL,DRIVER_NAME);
 
     /* set up timer function */
     init_timer(&timer);
@@ -419,7 +428,7 @@ void actuator_cleanup(void)
 #ifdef CONFIG_DEVFS_FS
     devfs_remove(DRIVER_NAME);
 #endif    
-    class_device_destroy(actuator_class,MKDEV(major,0));
+    device_destroy(actuator_class,MKDEV(major,0));
     class_destroy(actuator_class);
     unregister_chrdev(major, DRIVER_NAME); 
 

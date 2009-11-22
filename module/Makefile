@@ -1,5 +1,5 @@
 ifneq ($(KERNELRELEASE),)
-obj-m	:= actuator.o
+obj-m	:= actuator.o seractuator.o
 
 else
 KDIR	:= /lib/modules/$(shell uname -r)/build
