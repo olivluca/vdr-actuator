@@ -1,0 +1,33 @@
+Since most new pc don't come with a parallel port anymore, I developed the
+module "seractuator" to control an actuator using the control lines of a
+serial port (and since pc without a parallel port probably is also missing a
+serial port, you can use an usb to rs232 converter, provided it correctly
+manages the control pins and it is supported under Linux).
+The circuit I use for the parallel port should also work with the serial
+port (though some could not work with the 5V provided by the debouncing
+circuit) using the following connections:
+
+   Signal  DB9  DB25  Function
+ ==============================================================
+    RTS     7    4    rotate west output
+    DTR     4   20    rotate east output
+    CTS     8    5    pulse counter input
+
+
+
+I'm not a kernel expert, so this module is probably bug ridden.
+I also didn't care for backwards compatibility: the module only builds under
+kernel 2.6.17 onwards .
+
+It should be possible to build the module by simply typing "make", provided
+you have the kernel source for the currently running kernel *and*
+/lib/modules/$(uname -r)/build points to the source tree (this is the case
+with Mandriva once you installed the kernel-devel or kernel-source package
+matching the currently running kernel, other distributions should do the
+same).  
+
+Since the module uses a serial port, you have to specify which port to use
+with the "port" parameter, e.g.
+
+insmod seractuator.ko port=/dev/ttyS0
+insmod seractuator.ko port=/dev/ttyUSB0 
