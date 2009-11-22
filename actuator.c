@@ -7,6 +7,7 @@
  */
 
 #include <linux/dvb/frontend.h>
+#include <linux/dvb/version.h>
 #include <sys/ioctl.h>
 #include <vdr/config.h>
 #include <vdr/diseqc.h>
@@ -1462,7 +1463,11 @@ void cMainMenuActuator::Tune(bool live)
       SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0);
       SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO
  #if (APIVERSNUM == 10514 || APIVERSNUM >= 10700)
+   #if DVB_API_VERSION == 5
+      , QPSK, SYS_DVBS, ROLLOFF_AUTO
+   #else
       , DVBFE_MOD_QPSK, DVBFE_DELSYS_DVBS, DVBFE_ROLLOFF_UNKNOWN  //FIXME, this won't surely work with dvb-s2
+   #endif   
  #endif     
       );
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;
