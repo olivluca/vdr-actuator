@@ -1452,16 +1452,20 @@ void cMainMenuActuator::GetSignalInfo(void)
 void cMainMenuActuator::Tune(bool live)
 {
       int Apids[MAXAPIDS + 1] = { 0 };
+      int Atypes[MAXAPIDS + 1] = { 0 };
       int Dpids[MAXDPIDS + 1] = { 0 };
+      int Dtypes[MAXDPIDS + 1] = { 0 };
       int Spids[MAXSPIDS + 1] = { 0 };
       char ALangs[MAXAPIDS+1][MAXLANGCODE2]={ "" };
       char DLangs[MAXDPIDS+1][MAXLANGCODE2]={ "" };
       char SLangs[MAXSPIDS+1][MAXLANGCODE2] = { "" };
       Apids[0]=menuvalue[MI_APID];
-      /*
-      SChannel->SetPids(menuvalue[MI_VPID],0,
-        0, //FIXME add menu to select proper stream type
-        Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0); */
+      Atypes[0]=4; //FIXME add menu option
+      SChannel->SetPids(menuvalue[MI_VPID], //Vpid
+                         0, //Ppid
+                         2, //Vtype MPEG-2 - FIXME add menu
+                         Apids,Atypes,ALangs,Dpids,Dtypes,DLangs,Spids, SLangs, 
+                         0); //Tpid
       cDvbTransponderParameters dtp;
       dtp.SetPolarization(Pol);
       dtp.SetModulation(QPSK);
