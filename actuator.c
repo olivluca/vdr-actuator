@@ -6,7 +6,7 @@
  * $Id$
  */
 
-#include <linux/dvb/frontend.h>
+//#include <linux/dvb/frontend.h>
 #include <linux/dvb/version.h>
 #include <sys/ioctl.h>
 #include <vdr/config.h>
@@ -553,7 +553,12 @@ void cTransponders::LoadTransponders(int source)
 {
   cList<cTransponder>::Clear();
   int satlong = source & cSource::st_Pos;
-  if (!(source & cSource::st_Neg)) satlong=3600-satlong;
+  if (satlong > 0x00007FFF) {
+    satlong |= 0xFFFF0000;
+    satlong = - satlong;
+  }  else {   
+    satlong = 3600 - satlong;
+  }    
   char buffer[100];
   snprintf(buffer,sizeof(buffer),"transponders/%04d.ini",satlong);
   Load(AddDirectory(cPlugin::ConfigDirectory(),buffer));
@@ -681,7 +686,8 @@ cMainMenuActuator::cMainMenuActuator(void)
   if (curPosition) menuvalue[MI_GOTO]=curPosition->Position();
   else menuvalue[MI_GOTO]=0;
   menuvalue[MI_FREQUENCY]=OldChannel->Frequency();
-  Pol=OldChannel->Polarization();
+  cDvbTransponderParameters dtp(OldChannel->Parameters());
+  Pol=dtp.Polarization();
   if (Pol=='v') Pol='V';
   if (Pol=='h') Pol='H';
   if (Pol=='l') Pol='L';
@@ -693,11 +699,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
   //fast refresh only when the dish is moving
   //(now always, to show signal information more timely)
-#if APIVERSNUM < 10500
-  needsFastResponse=true; //((status.state == ACM_EAST) || (status.state == ACM_WEST));
-#else /* VDR_1_5 */
   SetNeedsFastResponse(true); //((status.state == ACM_EAST) || (status.state == ACM_WEST));
-#endif   
   if (Setup.UseSmallFont == 0) {
     // Dirty hack to force the small fonts...
     Setup.UseSmallFont = 1;
@@ -752,11 +754,7 @@ cMainMenuActuator::~cMainMenuActuator()
   PosTracker->RestoreUpdate();
   if (OldChannel) {
     if (HasSwitched) {
-      if (cDevice::GetDevice(OldChannel,0
-#if APIVERSNUM >= 10500      
-      ,true
-#endif      
-         )==ActuatorDevice) {
+      if (cDevice::GetDevice(OldChannel,0,true)==ActuatorDevice) {
         cDevice::PrimaryDevice()->SwitchChannel(OldChannel, HasSwitched);
         return;
       }  
@@ -1460,23 +1458,19 @@ void cMainMenuActuator::Tune(bool live)
       char DLangs[MAXDPIDS+1][MAXLANGCODE2]={ "" };
       char SLangs[MAXSPIDS+1][MAXLANGCODE2] = { "" };
       Apids[0]=menuvalue[MI_APID];
-      SChannel->SetPids(menuvalue[MI_VPID],0,Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0);
-      SChannel->cChannel::SetSatTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],Pol,menuvalue[MI_SYMBOLRATE],FEC_AUTO
- #if (APIVERSNUM == 10514 || APIVERSNUM >= 10700)
-   #if DVB_API_VERSION == 5
-      , QPSK, SYS_DVBS, ROLLOFF_AUTO
-   #else
-      , DVBFE_MOD_QPSK, DVBFE_DELSYS_DVBS, DVBFE_ROLLOFF_UNKNOWN  //FIXME, this won't surely work with dvb-s2
-   #endif   
- #endif     
-      );
+      /*
+      SChannel->SetPids(menuvalue[MI_VPID],0,
+        0, //FIXME add menu to select proper stream type
+        Apids,ALangs,Dpids,DLangs, Spids, SLangs, 0); */
+      cDvbTransponderParameters dtp;
+      dtp.SetPolarization(Pol);
+      dtp.SetModulation(QPSK);
+      dtp.SetSystem(SYS_DVBS);
+      dtp.SetRollOff(ROLLOFF_AUTO);  
+      SChannel->cChannel::SetTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],menuvalue[MI_SYMBOLRATE],dtp.ToString('S'));
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;
       if (HasSwitched && live) {
-        if (cDevice::GetDevice(SChannel,0
-  #if APIVERSNUM >= 10500      
-        ,true
-  #endif      
-           )==ActuatorDevice) {
+        if (cDevice::GetDevice(SChannel,0,true)==ActuatorDevice) {
           cDevice::PrimaryDevice()->SwitchChannel(SChannel, HasSwitched);
           return;
         }  

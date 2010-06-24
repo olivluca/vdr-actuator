@@ -20,6 +20,10 @@ VERSION = $(shell grep 'static const char \*VERSION *=' $(PLUGIN).c | awk '{ pri
 CXX      ?= g++
 CXXFLAGS ?= -O2 -Wall -Woverloaded-virtual -Wno-parentheses
 
+### Make sure that the necessary options are included
+
+-include $(VDRDIR)/Make.global
+
 ### The directory environment:
 
 DVBDIR = ../../../../DVB

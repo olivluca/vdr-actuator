@@ -365,7 +365,8 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
         // Scan the stream-specific loop:
         SI::PMT::Stream stream;
         int Vpid = 0;
-        int Ppid = pmt.getPCRPid();
+        int Ppid = 0;
+        int Vtype = 0;
         int Apids[MAXAPIDS + 1] = { 0 };
         int Dpids[MAXDPIDS + 1] = { 0 };
         int Spids[MAXSPIDS + 1] = { 0 };
@@ -380,7 +381,10 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
             switch (stream.getStreamType()) {
               case 1: // STREAMTYPE_11172_VIDEO
               case 2: // STREAMTYPE_13818_VIDEO
+              case 0x1B: // MPEG4
                       Vpid = stream.getPid();
+                      Ppid = pmt.getPCRPid();
+                      Vtype = stream.getStreamType();
                       break;
               case 3: // STREAMTYPE_11172_AUDIO
               case 4: // STREAMTYPE_13818_AUDIO
@@ -466,7 +470,9 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                 delete d;
                 }
             }
-        Channel->SetPids(Vpid, Vpid ? Ppid : 0, Apids, ALangs, Dpids, DLangs, Spids, SLangs, Tpid);
+        /*Channel->SetPids(Vpid, Vpid ? Ppid : 0,
+           Vtype,
+           Apids, ALangs, Dpids, DLangs, Spids, SLangs, Tpid);*/
         Channel->SetCaIds(CaDescriptors->CaIds());
         Channel->SetCaDescriptors(CaDescriptorHandler.AddCaDescriptors(CaDescriptors));
         }
