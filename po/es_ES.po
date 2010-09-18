@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-11-04 18:16+0100\n"
+"POT-Creation-Date: 2010-06-24 21:26+0200\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Ruben Nunez Francisco <ruben.nunez@tang-it.com>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -60,8 +60,14 @@ msgstr "Ajusta Limite Oeste"
 msgid "Frequency:"
 msgstr "Frecuencia:"
 
-msgid "Symbolrate:"
-msgstr "SymbolRate:"
+msgid "SR:"
+msgstr ""
+
+msgid "Sys:"
+msgstr ""
+
+msgid "Mod:"
+msgstr ""
 
 msgid "Vpid:"
 msgstr "Vpid:"
@@ -139,3 +145,6 @@ msgstr "Tarjeta no disponible"
 
 msgid "Are you sure?"
 msgstr "¿Está seguro?"
+
+#~ msgid "Symbolrate:"
+#~ msgstr "SymbolRate:"

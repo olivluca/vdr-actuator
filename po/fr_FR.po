@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-11-04 18:16+0100\n"
+"POT-Creation-Date: 2010-06-24 21:26+0200\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Nicolas Huillard <nhuillard@e-dition.fr>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -63,8 +63,14 @@ msgstr "Fixer Limite Ouest"
 msgid "Frequency:"
 msgstr "Fréquence:"
 
-msgid "Symbolrate:"
-msgstr "SymbolRate:"
+msgid "SR:"
+msgstr ""
+
+msgid "Sys:"
+msgstr ""
+
+msgid "Mod:"
+msgstr ""
 
 msgid "Vpid:"
 msgstr "Vpid:"
@@ -142,3 +148,6 @@ msgstr ""
 
 msgid "Are you sure?"
 msgstr "Etes vous sur?"
+
+#~ msgid "Symbolrate:"
+#~ msgstr "SymbolRate:"

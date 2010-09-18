@@ -39,7 +39,7 @@ enum menuindex {
   MI_SETEASTLIMIT, MI_SETZERO,             MI_SETWESTLIMIT,
                    MI_SATPOSITION,
                    MI_FREQUENCY,
-                   MI_SYMBOLRATE,
+  MI_SYMBOLRATE,   MI_SYSTEM,              MI_MODULATION,
                    MI_VPID,
                    MI_APID,
                    MI_SCANTRANSPONDER,
@@ -56,7 +56,7 @@ static const int itemsperrow[] = {
                                  3,
                                  1,
                                  1,
-                                 1,
+                                 3,
                                  1,
                                  1,
                                  1,
@@ -76,7 +76,7 @@ static const char *menucaption[] = {
                                    trNOOP("Set East Limit"),trNOOP("Set Zero"), trNOOP("Set West Limit"),
                                    "", //Sat position
                                    trNOOP("Frequency:"),
-                                   trNOOP("Symbolrate:"),
+                                   trNOOP("SR:"),trNOOP("Sys:"),trNOOP("Mod:"),
                                    trNOOP("Vpid:"),
                                    trNOOP("Apid:"),
                                    trNOOP("Scan Transponder"),
@@ -94,7 +94,7 @@ static const int menudigits[] = {
                                    0,0,0,
                                    0,
                                    5,
-                                   5,
+                                   5,0,0,
                                    4,
                                    4,
                                    0,
@@ -693,6 +693,8 @@ cMainMenuActuator::cMainMenuActuator(void)
   if (Pol=='l') Pol='L';
   if (Pol=='r') Pol='R';
   menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
+  menuvalue[MI_SYSTEM]=dtp.System();
+  menuvalue[MI_MODULATION]=dtp.Modulation();
   menuvalue[MI_VPID]=OldChannel->Vpid();
   menuvalue[MI_APID]=OldChannel->Apid(0);
   actuator_status status;
@@ -1102,6 +1104,46 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 case MI_APID:
                    Tune(); 
                    break;
+                case MI_SYSTEM:
+                  if (menuvalue[MI_SYSTEM]==SYS_DVBS)
+                     menuvalue[MI_SYSTEM]=SYS_DVBS2;
+                  else
+                     menuvalue[MI_SYSTEM]=SYS_DVBS;
+                  break;    
+                case MI_MODULATION:
+                  switch (menuvalue[MI_MODULATION]) {
+                        case QPSK:
+                          menuvalue[MI_MODULATION]=QAM_16;
+                          break;
+                        case QAM_16:
+                          menuvalue[MI_MODULATION]=QAM_32;
+                          break;
+                        case QAM_32:
+                          menuvalue[MI_MODULATION]=QAM_64;
+                          break;
+                        case QAM_64:
+                          menuvalue[MI_MODULATION]=QAM_128;
+                          break;
+                        case QAM_128:
+                          menuvalue[MI_MODULATION]=QAM_256;
+                          break;
+                        case QAM_256:
+                          menuvalue[MI_MODULATION]=QAM_AUTO;
+                          break;
+                        case QAM_AUTO:
+                          menuvalue[MI_MODULATION]=VSB_8;
+                          break;
+                        case VSB_8:
+                          menuvalue[MI_MODULATION]=VSB_16;
+                          break;
+                        case VSB_16:
+                          menuvalue[MI_MODULATION]=PSK_8;
+                          break;
+                        case PSK_8:
+                          menuvalue[MI_MODULATION]=QPSK;
+                          break;
+                  }
+                  break;       
                 case MI_SCANTRANSPONDER:
                    if (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE) {
                      errormessage=EM_NOTPOSITIONED;
@@ -1358,6 +1400,14 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf, sizeof(buf), tr(menucaption[itemindex]));
                break;
              case MI_SYMBOLRATE:
+               snprintf(buf, sizeof(buf),"%s %d", tr(menucaption[itemindex]), menuvalue[itemindex]);
+               break;  
+             case MI_SYSTEM:
+               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], SystemValues));
+               break;
+             case MI_MODULATION:
+               snprintf(buf, sizeof(buf),"%s %s ", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], ModulationValues));
+               break;  
              case MI_VPID:
              case MI_APID:
                curwidth-=colwidth;
@@ -1460,16 +1510,16 @@ void cMainMenuActuator::Tune(bool live)
       char DLangs[MAXDPIDS+1][MAXLANGCODE2]={ "" };
       char SLangs[MAXSPIDS+1][MAXLANGCODE2] = { "" };
       Apids[0]=menuvalue[MI_APID];
-      Atypes[0]=4; //FIXME add menu option
+      Atypes[0]=3; //Default audio
       SChannel->SetPids(menuvalue[MI_VPID], //Vpid
                          0, //Ppid
-                         2, //Vtype MPEG-2 - FIXME add menu
+                         2, //Vtype - default
                          Apids,Atypes,ALangs,Dpids,Dtypes,DLangs,Spids, SLangs, 
                          0); //Tpid
       cDvbTransponderParameters dtp;
       dtp.SetPolarization(Pol);
-      dtp.SetModulation(QPSK);
-      dtp.SetSystem(SYS_DVBS);
+      dtp.SetModulation(menuvalue[MI_MODULATION]);
+      dtp.SetSystem(menuvalue[MI_SYSTEM]);
       dtp.SetRollOff(ROLLOFF_AUTO);  
       SChannel->cChannel::SetTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],menuvalue[MI_SYMBOLRATE],dtp.ToString('S'));
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;

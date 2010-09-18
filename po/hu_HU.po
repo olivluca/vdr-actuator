@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <luca@ventoso.org>\n"
-"POT-Creation-Date: 2007-11-04 18:16+0100\n"
+"POT-Creation-Date: 2010-06-24 21:26+0200\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Istvan Koenigsberger <istvnko@hotmail.com>, Guido Josten <guido.josten@t-online.de>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -61,7 +61,13 @@ msgstr ""
 msgid "Frequency:"
 msgstr ""
 
-msgid "Symbolrate:"
+msgid "SR:"
+msgstr ""
+
+msgid "Sys:"
+msgstr ""
+
+msgid "Mod:"
 msgstr ""
 
 msgid "Vpid:"
