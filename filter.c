@@ -1,8 +1,4 @@
 #include "filter.h"
-#include <malloc.h>
-#include "../../../libsi/section.h"
-#include "../../../libsi/descriptor.h"
-#include <vdr/channels.h>
 
 // --- cCaDescriptor ---------------------------------------------------------
 
@@ -229,6 +225,11 @@ PatFilter::PatFilter()
   SetStatus(false);
   pit=pnum=0;
   sdtfinished=false;
+  for (int n=0;n<128;n++)
+    pSid[n]=-1;
+  pSidCnt=0;
+  lastFound=0;
+  waitingForGodot=0;  
 }
 
 void PatFilter::SetSdtFilter(SdtFilter *SdtFilter)
@@ -245,6 +246,7 @@ void PatFilter::SetStatus(bool On)
     pmtPid[i] = 0;
   numPmtEntries = 0;
   num=0;
+  numRunning=0;
   pit=pnum=0;
 }
 
@@ -266,7 +268,7 @@ bool PatFilter::PmtVersionChanged(int PmtPid, int Sid, int Version)
          return Changed;
          }
       }
-  if (numPmtEntries < MAXPMTENTRIES)
+  if (numPmtEntries < CMAXPMTENTRIES)
      pmtVersion[numPmtEntries++] = id | v;
   return true;
 }
@@ -274,7 +276,7 @@ bool PatFilter::PmtVersionChanged(int PmtPid, int Sid, int Version)
 bool PatFilter::SidinSdt(int Sid)
 {
   for (int i=0; i<sdtFilter->numSid; i++)
-    if (sdtFilter->sid[i]==Sid)
+    if (sdtFilter->sid[i]==Sid && sdtFilter->usefulSid[i])
     {
       for (int j=0; j<MAXFILTERS; j++)
         if (Sids[j]==Sid)
@@ -286,73 +288,76 @@ bool PatFilter::SidinSdt(int Sid)
 
 void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
 {
+  if (lastFound<time(NULL) && waitingForGodot<10) {  // There's something on this channel, waiting a bit longer...
+    waitingForGodot++;
+    lastFound++;
+  }
+  
   if (Pid == 0x00) {
      if (Tid == 0x00) {
-        for (int i=0; i<MAXFILTERS; i++)
-          if (pmtPid[i] && time(NULL) - lastPmtScan[i] > FILTERTIMEOUT) {
+        for (int i=0; i<MAXFILTERS; i++) {
+          if (pmtPid[i] && (time(NULL) - lastPmtScan[i]) > FILTERTIMEOUT) {
              Del(pmtPid[i], 0x02);
-             pmtPid[i] = 0;
+             pmtPid[i] = 0; //Note for recycling, but do not remove from feed
+             pSid[pSidCnt++]=Sids[i];
+             num++;
              for (int k=0; i<sdtFilter->numSid; k++)
                if (sdtFilter->sid[k]==Sids[i])
                {
-                 num++;
                  sdtFilter->sid[k]=0;
                  break;
                }
              Sids[i]=0;
              pmtIndex++;
-            // lastPmtScan = time(NULL);
              }
+           }  
            SI::PAT pat(Data, false);
            if (!pat.CheckCRCAndParse())
               return;
            SI::PAT::Association assoc;
-           int Index = 0;
-           while (pmtPid[Index] && Index<MAXFILTERS) Index++;
+           
            int tnum=0,tSid[100];
-           for (SI::Loop::Iterator it; pat.associationLoop.getNext(assoc, it); ) {
-               tSid[tnum++]=assoc.getServiceId();
-               if (!assoc.isNITPid() &&  SidinSdt(assoc.getServiceId())) {
-                  if (Index<MAXFILTERS) 
-                  {
-                    pmtPid[Index] = assoc.getPid();
-                    Sids[Index] = assoc.getServiceId();
-                    lastPmtScan[Index] = time(NULL);
-                    Add(pmtPid[Index], 0x02);
-                    while (pmtPid[Index] && Index<MAXFILTERS) Index++;
-                  }
-                  if (Index==MAXFILTERS)
-                    break;
-                  }
-               }
-             for (int i=0; i<tnum; i++)
-             {
-               bool found=false;
-               for (int k=0; k<pnum; k++)
-               {
-                 if (tSid[i]==pSid[k])
-                   found=true;
-               }
-               if (!found)
-                  pSid[pnum++]=tSid[i];
-             }
-             pit++;              
-             for (int i=0; pit>4 && i<sdtFilter->numSid; i++)
-             {
-               bool found=false;
-               for (int j=0; j<pnum; j++)
-                 if (!sdtFilter->sid[i] || sdtFilter->sid[i]==pSid[j])
-                   found=true;
-               if (!found)
-               {
-                 sdtFilter->sid[i]=0;
-                 num++;
-               }
-             }
+           
+      for (SI::Loop::Iterator it; pat.associationLoop.getNext(assoc, it); ) {
+        int xSid=assoc.getServiceId();
+
+        tSid[tnum++]=xSid;
+        int sidfound=0;
+
+        for(int n=0;n<pSidCnt;n++) {
+          if (pSid[n]==xSid) {
+            sidfound=1;
+            break;
+          }
         }
+        
+        if (!sidfound && !assoc.isNITPid() &&  SidinSdt(assoc.getServiceId())) {
+
+          int Index = 0;
+          int foundIndex=0;
+
+          // Find free filter PID
+          for(Index=0;Index<MAXFILTERS;Index++) {
+            if (pmtPid[Index]==0) {
+              foundIndex=1;
+              break;
+            }
+          }
+           
+          if (foundIndex) {
+            pmtPid[Index] = assoc.getPid();
+            Sids[Index] = xSid;
+            lastPmtScan[Index] = time(NULL);
+//            printf("ADD %i as %i, Sid %i\n",pmtPid[Index],Index,xSid);
+            Add(pmtPid[Index], 0x02);
+            pSid[pSidCnt++]=xSid;
+          }
+        }
+      }
+    }
      }
   else if (Tid == SI::TableIdPMT && Source() && Transponder()) {
-     int Index=0;
+     int Index=-1;
      for (int i=0; i<MAXFILTERS; i++)
        if (Pid==pmtPid[i])
           Index=i;
@@ -364,7 +369,7 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
         return;
         }
      cChannel *Channel = Channels.GetByServiceID(Source(), Transponder(), pmt.getServiceId());
-     if (Channel) {
+     if (Channel && Index!=-1) {
         SI::CaDescriptor *d;
         cCaDescriptors *CaDescriptors = new cCaDescriptors(Channel->Source(), Channel->Transponder(), Channel->Sid());
         // Scan the common loop:
@@ -375,7 +380,7 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
         // Scan the stream-specific loop:
         SI::PMT::Stream stream;
         int Vpid = 0;
-        int Ppid = 0;
+        int Ppid = pmt.getPCRPid();
         int Vtype = 0;
         int Apids[MAXAPIDS + 1] = { 0 }; // these lists are zero-terminated
         int Atypes[MAXDPIDS + 1] = { 0 };
@@ -535,16 +540,32 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                }
             }
         Channel->SetPids(Vpid, Ppid, Vtype, Apids, Atypes, ALangs, Dpids, Dtypes, DLangs, Spids, SLangs, Tpid);
+  printf("#### pids for %i %s VPID:%i APID[0]:%i SID:%i\n",num,Channel->Name(),Vpid, Apids[0], Channel->Sid());
         Channel->SetCaIds(CaDescriptors->CaIds());
         Channel->SetSubtitlingDescriptors(SubtitlingTypes, CompositionPageIds, AncillaryPageIds);
         Channel->SetCaDescriptors(CaDescriptorHandler.AddCaDescriptors(CaDescriptors));
+        Del(pmtPid[Index], 0x02);
+        pmtPid[Index]=0;
+        num++;
+        numRunning++;
+        lastFound=time(NULL);
         }
-     lastPmtScan[Index] = 0; // this triggers the next scan
+#if 0
+     if (Index!=-1)
+       lastPmtScan[Index] = 0; // this triggers the next scan
+#endif
      Channels.Unlock();
      }
-  if (sdtfinished && num>=sdtFilter->numSid) {
+  if (sdtfinished && num>=sdtFilter->numUsefulSid) {
     endofScan=true;
     }
+}
+void PatFilter::GetFoundNum(int &current, int &total)
+{
+  current=numRunning;
+  total=(sdtFilter?sdtFilter->numSid:0);
+  if (total>1000 || total<0)
+    total=0;
 }
 
 
@@ -557,6 +578,7 @@ SdtFilter::SdtFilter(PatFilter *PatFilter)
 {
   patFilter = PatFilter;
   numSid=0;
+  numUsefulSid=0;
   Set(0x11, 0x42);  // SDT
 }
 
@@ -588,6 +610,12 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
           switch (d->getDescriptorTag()) {
             case SI::ServiceDescriptorTag: {
                  SI::ServiceDescriptor *sd = (SI::ServiceDescriptor *)d;
+                    char NameBufDeb[1024];
+                    char ShortNameBufDeb[1024];
+                 sd->serviceName.getText(NameBufDeb, ShortNameBufDeb, sizeof(NameBufDeb), sizeof(ShortNameBufDeb));
+                 // printf(" %s --  ServiceType: %X: AddServiceType %d, Sid %i, running %i\n",
+                 // NameBufDeb, sd->getServiceType(), AddServiceType, SiSdtService.getServiceId(), SiSdtService.getRunningStatus());
+                 
                  switch (sd->getServiceType()) {
                    case 0x01: // digital television service
                    case 0x02: // digital radio sound service
@@ -618,10 +646,19 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                             }
                         sd->providerName.getText(ProviderNameBuf, sizeof(ProviderNameBuf));
                         char *pp = compactspace(ProviderNameBuf);
+                          if ( SiSdtService.getRunningStatus()>SI::RunningStatusNotRunning) {
+                            usefulSid[numSid]=1;
+                            numUsefulSid++;
+                          }
+                          else 
+                            usefulSid[numSid]=0;
+
                         sid[numSid++]=SiSdtService.getServiceId();
+                        printf(" ---- found  chanel pn %s ps %s pp %s -----------> ",  pn, ps, pp); 
                         if (channel) {
                            channelsFound++;
-                           channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
+                           printf("OLD\n");
+                           channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), channel->Rid());
                            channel->SetName(pn, ps, pp);
                            // Using SiSdtService.getFreeCaMode() is no good, because some
                            // tv stations set this flag even for non-encrypted channels :-(
@@ -631,6 +668,7 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                            }
                         else if (*pn) {
                            channelsFound++;
+                           printf("NEW\n");
                            newFound++;
                            channel = Channels.NewChannel(Channel(), pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
                            patFilter->Trigger();
@@ -660,6 +698,15 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                      cChannel *link = Channels.GetByChannelID(tChannelID(Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
                      sid[numSid++]=SiSdtService.getServiceId();
                      if (!link) {
+#if 0
+           if (SiSdtService.getRunningStatus()>SI::RunningStatusNotRunning) {
+               usefulSid[numSid]=1;
+          numUsefulSid++;
+           }
+           else
+#endif
+               usefulSid[numSid]=0;
+               sid[numSid++]=SiSdtService.getServiceId();
                         newFound++;
                         link = Channels.NewChannel(Channel(), "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
                         patFilter->Trigger();
