@@ -1,5 +1,54 @@
-#include "filter.h"
+/*
+ *  Class to scan one satellite transponder to 
+ *  obtain service information.
+ *
+ *  Loosely based on the scan utility from dvb-apps and on
+ *  sdt.c and pat.c from vdr
+ */
 
+#include "scanner.h"
+
+
+static int get_bit(uint8_t *bitfield, int bit)
+{
+  return(bitfield[bit/8] >> (bit % 8)) & 1;
+}
+
+static void set_bit(uint8_t *bitfield, int bit)
+{
+  bitfield[bit/8] |= 1 << (bit % 8);
+}
+
+static int scanverbosity = 2;
+
+#define dprintf(level, fmt...)			\
+	do {					\
+		if (level <= scanverbosity)		\
+			fprintf(stderr, fmt);	\
+	} while (0)
+
+#define dpprintf(level, fmt, args...) \
+	dprintf(level, "%s:%d: " fmt, __FUNCTION__, __LINE__ , ##args)
+
+#define fatal(fmt, args...) do { dpprintf(-1, "FATAL: " fmt , ##args); exit(1); } while(0)
+#define error(msg...) dprintf(0, "ERROR: " msg)
+#define errorn(msg) dprintf(0, "%s:%d: ERROR: " msg ": %d %m\n", __FUNCTION__, __LINE__, errno)
+#define warning(msg...) dprintf(1, "WARNING: " msg)
+#define info(msg...) dprintf(2, msg)
+#define verbose(msg...) dprintf(3, msg)
+#define moreverbose(msg...) dprintf(4, msg)
+#define debug(msg...) dpprintf(5, msg)
+#define verbosedebug(msg...) dpprintf(6, msg)
+
+/****************************************************************************
+   The following classes:
+      cCaDescriptor
+      cCaDescriptors
+      cCaDescriptorsHandler
+   are copied verbatim from pat.c
+ ****************************************************************************/
+      
+      
 // --- cCaDescriptor ---------------------------------------------------------
 
 class cCaDescriptor : public cListObject {
@@ -211,165 +260,80 @@ int GetCaDescriptors(int Source, int Transponder, int ServiceId, const int *CaSy
   return CaDescriptorHandler.GetCaDescriptors(Source, Transponder, ServiceId, CaSystemIds, BufSize, Data, EsPid);
 }
 
-// --- PatFilter ------------------------------------------------------------
 
-PatFilter::PatFilter()
+// --- cChannelScanner --------------------------------------------------------
+
+void cChannelScanner::NewServiceInSdt(int service_id)
 {
-  sdtFilter=NULL;
-  pmtIndex = 0;
-  for (int i=0; i<MAXFILTERS; i++)
-    pmtPid[i] = 0;
-  numPmtEntries = 0;
-  Set(0x00, 0x00);  // PAT
-  endofScan=false;
-  SetStatus(false);
-  pit=pnum=0;
-  sdtfinished=false;
-  for (int n=0;n<128;n++)
-    pSid[n]=-1;
-  pSidCnt=0;
-  lastFound=0;
-  waitingForGodot=0;  
+  cServiceInSdt *s=new cServiceInSdt(service_id);
+  services_in_sdt.Add(s);
 }
 
-void PatFilter::SetSdtFilter(SdtFilter *SdtFilter)
+void cChannelScanner::FoundPidsForService(int service_id)
 {
-  sdtFilter=SdtFilter;
-  SetStatus(true);
+  for (cServiceInSdt *s=services_in_sdt.First(); s; s=services_in_sdt.Next(s))
+    if (s->service_id==service_id) {
+      s->pids_found=true;
+      return;
+    }  
 }
 
-void PatFilter::SetStatus(bool On)
+void cChannelScanner::CheckFoundPids(void)
 {
-  cFilter::SetStatus(On);
-  pmtIndex = 0;
-  for (int i=0; i<MAXFILTERS; i++)
-    pmtPid[i] = 0;
-  numPmtEntries = 0;
-  num=0;
-  numRunning=0;
-  pit=pnum=0;
+  for (cServiceInSdt *s=services_in_sdt.First(); s; s=services_in_sdt.Next(s))
+    if (!s->pids_found) {
+      cChannel *Channel = Channels.GetByServiceID(transponderData->Source(), transponderData->Transponder(), s->service_id);
+      warning("Pids not found for service id %d %s\n",s->service_id, Channel ? Channel->Name() : "");
+    }   
 }
 
-void PatFilter::Trigger(void)
+bool cChannelScanner::IsServiceInSdt(int service_id)
 {
-  numPmtEntries = 0;
+  for (cServiceInSdt *s=services_in_sdt.First(); s; s=services_in_sdt.Next(s))
+    if (s->service_id==service_id) 
+      return true;
+  return false;    
 }
 
-bool PatFilter::PmtVersionChanged(int PmtPid, int Sid, int Version)
+bool cChannelScanner::ParsePat(const unsigned char *buf, int section_length,
+		      int transport_stream_id)
 {
-  uint64_t v = Version;
-  v <<= 32;
-  uint64_t id = (PmtPid | (Sid << 16)) & 0x00000000FFFFFFFFLL;
-  for (int i = 0; i < numPmtEntries; i++) {
-      if ((pmtVersion[i] & 0x00000000FFFFFFFFLL) == id) {
-         bool Changed = (pmtVersion[i] & 0x000000FF00000000LL) != v;
-         if (Changed)
-            pmtVersion[i] = id | v;
-         return Changed;
-         }
-      }
-  if (numPmtEntries < CMAXPMTENTRIES)
-     pmtVersion[numPmtEntries++] = id | v;
+  (void)transport_stream_id;
+
+  int pmt_pid;
+  while (section_length > 0) {
+    int service_id = (buf[0] << 8) | buf[1];
+
+    if (service_id == 0)
+      goto skip; /* nit pid entry */
+
+    if (!IsServiceInSdt(service_id)) {
+      warning("Skipping service x%04x\n",service_id);
+      goto skip; /* service not found/used in SDT */
+    }        
+
+    pmt_pid = ((buf[2] & 0x1f) << 8) | buf[3];
+    if (pmt_pid)
+      AddFilter(SetupFilter(pmt_pid, 0x02, service_id, 5));
+
+skip:
+    buf += 4;
+    section_length -= 4;
+  };
   return true;
 }
 
-bool PatFilter::SidinSdt(int Sid)
+bool cChannelScanner::ParsePmt(const unsigned char *Data)
 {
-  for (int i=0; i<sdtFilter->numSid; i++)
-    if (sdtFilter->sid[i]==Sid && sdtFilter->usefulSid[i])
-    {
-      for (int j=0; j<MAXFILTERS; j++)
-        if (Sids[j]==Sid)
-          return false;
-      return true;
-    }
-  return false;
-}
-
-void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
-{
-  if (lastFound<time(NULL) && waitingForGodot<10) {  // There's something on this channel, waiting a bit longer...
-    waitingForGodot++;
-    lastFound++;
-  }
-  
-  if (Pid == 0x00) {
-     if (Tid == 0x00) {
-        for (int i=0; i<MAXFILTERS; i++) {
-          if (pmtPid[i] && (time(NULL) - lastPmtScan[i]) > FILTERTIMEOUT) {
-             Del(pmtPid[i], 0x02);
-             pmtPid[i] = 0; //Note for recycling, but do not remove from feed
-             pSid[pSidCnt++]=Sids[i];
-             num++;
-             for (int k=0; i<sdtFilter->numSid; k++)
-               if (sdtFilter->sid[k]==Sids[i])
-               {
-                 sdtFilter->sid[k]=0;
-                 break;
-               }
-             Sids[i]=0;
-             pmtIndex++;
-             }
-           }  
-           SI::PAT pat(Data, false);
-           if (!pat.CheckCRCAndParse())
-              return;
-           SI::PAT::Association assoc;
-           
-           int tnum=0,tSid[100];
-           
-      for (SI::Loop::Iterator it; pat.associationLoop.getNext(assoc, it); ) {
-        int xSid=assoc.getServiceId();
-
-        tSid[tnum++]=xSid;
-        int sidfound=0;
-
-        for(int n=0;n<pSidCnt;n++) {
-          if (pSid[n]==xSid) {
-            sidfound=1;
-            break;
-          }
-        }
-        
-        if (!sidfound && !assoc.isNITPid() &&  SidinSdt(assoc.getServiceId())) {
-
-          int Index = 0;
-          int foundIndex=0;
-
-          // Find free filter PID
-          for(Index=0;Index<MAXFILTERS;Index++) {
-            if (pmtPid[Index]==0) {
-              foundIndex=1;
-              break;
-            }
-          }
-           
-          if (foundIndex) {
-            pmtPid[Index] = assoc.getPid();
-            Sids[Index] = xSid;
-            lastPmtScan[Index] = time(NULL);
-//            printf("ADD %i as %i, Sid %i\n",pmtPid[Index],Index,xSid);
-            Add(pmtPid[Index], 0x02);
-            pSid[pSidCnt++]=xSid;
-          }
-        }
-      }
-    }
-     }
-  else if (Tid == SI::TableIdPMT && Source() && Transponder()) {
-     int Index=-1;
-     for (int i=0; i<MAXFILTERS; i++)
-       if (Pid==pmtPid[i])
-          Index=i;
      SI::PMT pmt(Data, false);
      if (!pmt.CheckCRCAndParse())
-        return;
-     if (!Channels.Lock(true, 10)) {
-        numPmtEntries = 0; // to make sure we try again
-        return;
-        }
-     cChannel *Channel = Channels.GetByServiceID(Source(), Transponder(), pmt.getServiceId());
-     if (Channel && Index!=-1) {
+        return false;
+     cChannel *Channel = Channels.GetByServiceID(transponderData->Source(), transponderData->Transponder(), pmt.getServiceId());
+     /**************************************************
+      Following part copied from pat.c
+      Modified lines marked with //LO
+      **************************************************/
+     if (Channel) {
         SI::CaDescriptor *d;
         cCaDescriptors *CaDescriptors = new cCaDescriptors(Channel->Source(), Channel->Transponder(), Channel->Sid());
         // Scan the common loop:
@@ -539,71 +503,40 @@ void PatFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                    }
                }
             }
+        //LO removed the check on Setup.UpdateChannels    
         Channel->SetPids(Vpid, Ppid, Vtype, Apids, Atypes, ALangs, Dpids, Dtypes, DLangs, Spids, SLangs, Tpid);
-  printf("#### pids for %i %s VPID:%i APID[0]:%i SID:%i\n",num,Channel->Name(),Vpid, Apids[0], Channel->Sid());
         Channel->SetCaIds(CaDescriptors->CaIds());
         Channel->SetSubtitlingDescriptors(SubtitlingTypes, CompositionPageIds, AncillaryPageIds);
         Channel->SetCaDescriptors(CaDescriptorHandler.AddCaDescriptors(CaDescriptors));
-        Del(pmtPid[Index], 0x02);
-        pmtPid[Index]=0;
-        num++;
-        numRunning++;
-        lastFound=time(NULL);
+        FoundPidsForService(Channel->Sid());  //LO added
         }
-#if 0
-     if (Index!=-1)
-       lastPmtScan[Index] = 0; // this triggers the next scan
-#endif
-     Channels.Unlock();
-     }
-  if (sdtfinished && num>=sdtFilter->numUsefulSid) {
-    endofScan=true;
-    }
-}
-void PatFilter::GetFoundNum(int &current, int &total)
-{
-  current=numRunning;
-  total=(sdtFilter?sdtFilter->numSid:0);
-  if (total>1000 || total<0)
-    total=0;
+     /**************************************************
+      End of part copied from pat.c
+      **************************************************/
+
+  return true;
 }
 
-
-// --- cSdtFilter ------------------------------------------------------------
-
-int SdtFilter::channelsFound = 0;
-int SdtFilter::newFound = 0;
-
-SdtFilter::SdtFilter(PatFilter *PatFilter)
-{
-  patFilter = PatFilter;
-  numSid=0;
-  numUsefulSid=0;
-  Set(0x11, 0x42);  // SDT
-}
-
-void SdtFilter::SetStatus(bool On)
-{
-  cFilter::SetStatus(On);
-  sectionSyncer.Reset();
-}
-
-void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
-{
-  if (!(Source() && Transponder()))
-     return;
-  SI::SDT sdt(Data, false);
+bool cChannelScanner::ParseSdt(const unsigned char *Data)
+{	
+  SI::SDT sdt(Data,false);
   if (!sdt.CheckCRCAndParse())
-     return;
-  if (!sectionSyncer.Sync(sdt.getVersionNumber(), sdt.getSectionNumber(), sdt.getLastSectionNumber()))
-     return;
-  if (!Channels.Lock(true, 10))
-     return;
+    return false;
+          
+ /**************************************************
+  Following part copied from sdt.c
+  Modified lines marked with //LO
+  **************************************************/
   SI::SDT::Service SiSdtService;
   for (SI::Loop::Iterator it; sdt.serviceLoop.getNext(SiSdtService, it); ) {
-     cChannel *channel = Channels.GetByChannelID(tChannelID(Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
+      if (SiSdtService.getRunningStatus()!=SI::RunningStatusRunning) { //LO added
+        warning("Service %d, running status %d (!=running), skipped\n",SiSdtService.getServiceId(),SiSdtService.getRunningStatus()); //LO added
+        continue; //LO added
+      }  //LO added
+      //LO in the following 3 lines changed Source() to transponderData->Source()
+      cChannel *channel = Channels.GetByChannelID(tChannelID(transponderData->Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
       if (!channel)
-         channel = Channels.GetByChannelID(tChannelID(Source(), 0, Transponder(), SiSdtService.getServiceId()));
+          channel = Channels.GetByChannelID(tChannelID(transponderData->Source(), 0, transponderData->Transponder(), SiSdtService.getServiceId()));
       cLinkChannels *LinkChannels = NULL;
       SI::Descriptor *d;
       for (SI::Loop::Iterator it2; (d = SiSdtService.serviceDescriptors.getNext(it2)); ) {
@@ -613,8 +546,8 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                     char NameBufDeb[1024];
                     char ShortNameBufDeb[1024];
                  sd->serviceName.getText(NameBufDeb, ShortNameBufDeb, sizeof(NameBufDeb), sizeof(ShortNameBufDeb));
-                 // printf(" %s --  ServiceType: %X: AddServiceType %d, Sid %i, running %i\n",
-                 // NameBufDeb, sd->getServiceType(), AddServiceType, SiSdtService.getServiceId(), SiSdtService.getRunningStatus());
+                  //printf(" %s --  ServiceType: %X: AddServiceType %d, Sid %i, running %i\n",
+                  //NameBufDeb, sd->getServiceType(), AddServiceType, SiSdtService.getServiceId(), SiSdtService.getRunningStatus());
                  
                  switch (sd->getServiceType()) {
                    case 0x01: // digital television service
@@ -630,15 +563,7 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                         sd->serviceName.getText(NameBuf, ShortNameBuf, sizeof(NameBuf), sizeof(ShortNameBuf));
                         char *pn = compactspace(NameBuf);
                         char *ps = compactspace(ShortNameBuf);
-                        if (!*ps && cSource::IsCable(Source())) {
-                           // Some cable providers don't mark short channel names according to the
-                           // standard, but rather go their own way and use "name>short name":
-                           char *p = strchr(pn, '>'); // fix for UPC Wien
-                           if (p && p > pn) {
-                              *p++ = 0;
-                              strcpy(ShortNameBuf, skipspace(p));
-                              }
-                           }
+                        //LO removed check for cable channels, this is satellite only
                         // Avoid ',' in short name (would cause trouble in channels.conf):
                         for (char *p = ShortNameBuf; *p; p++) {
                             if (*p == ',')
@@ -646,19 +571,12 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                             }
                         sd->providerName.getText(ProviderNameBuf, sizeof(ProviderNameBuf));
                         char *pp = compactspace(ProviderNameBuf);
-                          if ( SiSdtService.getRunningStatus()>SI::RunningStatusNotRunning) {
-                            usefulSid[numSid]=1;
-                            numUsefulSid++;
-                          }
-                          else 
-                            usefulSid[numSid]=0;
-
-                        sid[numSid++]=SiSdtService.getServiceId();
-                        printf(" ---- found  chanel pn %s ps %s pp %s -----------> ",  pn, ps, pp); 
+                        NewServiceInSdt(SiSdtService.getServiceId()); //LO added
                         if (channel) {
-                           channelsFound++;
-                           printf("OLD\n");
+                           totalFound++; //LO added
+                           info("OLD"); //LO added
                            channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), channel->Rid());
+                           //LO removed check on Setup.UpdateChannels
                            channel->SetName(pn, ps, pp);
                            // Using SiSdtService.getFreeCaMode() is no good, because some
                            // tv stations set this flag even for non-encrypted channels :-(
@@ -667,12 +585,13 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                            // channel->SetCa(SiSdtService.getFreeCaMode() ? 0xFFFF : 0);
                            }
                         else if (*pn) {
-                           channelsFound++;
-                           printf("NEW\n");
-                           newFound++;
-                           channel = Channels.NewChannel(Channel(), pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
-                           patFilter->Trigger();
+                           totalFound++; //LO added
+                           info("NEW"); //LO added
+                           newFound++; //LO added
+                           channel = Channels.NewChannel(transponderData, pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
+                           //LO removed patFilter->Trigger()
                            }
+                        info(" channel found, name: \"%s\" shortname: \"%s\" provider: \"%s\"\n",  pn, ps, pp); //LO added
                         }
                    default: ;
                    }
@@ -691,25 +610,18 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
                  break;
             */
             case SI::NVODReferenceDescriptorTag: {
-                 channelsFound++;
                  SI::NVODReferenceDescriptor *nrd = (SI::NVODReferenceDescriptor *)d;
                  SI::NVODReferenceDescriptor::Service Service;
                  for (SI::Loop::Iterator it; nrd->serviceLoop.getNext(Service, it); ) {
-                     cChannel *link = Channels.GetByChannelID(tChannelID(Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
-                     sid[numSid++]=SiSdtService.getServiceId();
-                     if (!link) {
-#if 0
-           if (SiSdtService.getRunningStatus()>SI::RunningStatusNotRunning) {
-               usefulSid[numSid]=1;
-          numUsefulSid++;
-           }
-           else
-#endif
-               usefulSid[numSid]=0;
-               sid[numSid++]=SiSdtService.getServiceId();
-                        newFound++;
-                        link = Channels.NewChannel(Channel(), "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
-                        patFilter->Trigger();
+                     totalFound++;
+                     NewServiceInSdt(Service.getServiceId());
+                     //LO in the following line changed Source() to transponderData->Source()
+                     cChannel *link = Channels.GetByChannelID(tChannelID(transponderData->Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
+                     info("%s NVOD service found\n", link ? "OLD" : "NEW"); //LO added
+                     if (!link) { //LO removed check on Setup.UpdateChannels
+                        newFound++; //LO added
+                        //LO in the following line changed Source() to transponderData->Source()
+                        link = Channels.NewChannel(transponderData, "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
                         }
                      if (link) {
                         if (!LinkChannels)
@@ -730,25 +642,383 @@ void SdtFilter::Process(u_short Pid, u_char Tid, const u_char *Data, int Length)
             delete LinkChannels;
          }
       }
-  Channels.Unlock();
- if (sdt.getSectionNumber() == sdt.getLastSectionNumber()) { 
-  patFilter->SdtFinished();
-  SetStatus(false);
+ /**************************************************
+  end of part copied from sdt.c
+  **************************************************/
+      
+  return true;
+}
+
+/**
+ *   returns 0 when more sections are expected
+ *	   1 when all sections are read on this pid
+ *	   -1 on invalid table id
+ */
+int cChannelScanner::ParseSection(cSectionBuf *s)
+{
+  const unsigned char *buf = s->buf;
+  int table_id;
+  int section_length;
+  int table_id_ext;
+  int section_version_number;
+  int section_number;
+  int last_section_number;
+  int i;
+
+  table_id = buf[0];
+
+  if (s->table_id != table_id)
+    return -1;
+
+  section_length = ((buf[1] & 0x0f) << 8) | buf[2];
+
+  table_id_ext = (buf[3] << 8) | buf[4];
+  section_version_number = (buf[5] >> 1) & 0x1f;
+  section_number = buf[6];
+  last_section_number = buf[7];
+
+  if (s->section_version_number != section_version_number || s->table_id_ext != table_id_ext) {
+    if (s->section_version_number != -1 && s->table_id_ext != -1)
+      debug("section version_number or table_id_ext changed "
+            "%d -> %d / %04x -> %04x\n",
+            s->section_version_number, section_version_number,
+            s->table_id_ext, table_id_ext);
+    s->table_id_ext = table_id_ext;
+    s->section_version_number = section_version_number;
+    s->sectionfilter_done = false;
+    memset (s->section_done, 0, sizeof(s->section_done));
+  }
+
+  buf += 8;  /* past generic table header */
+  section_length -= 5 + 4;  /* header + crc */
+  if (section_length < 0) {
+    warning("truncated section (PID 0x%04x, lenght %d)",
+            s->pid, section_length + 9);
+    return 0;
+  }
+
+  if (!get_bit(s->section_done, section_number)) {
+    bool section_processed = false;
+
+    debug("pid 0x%02x tid 0x%02x table_id_ext 0x%04x, "
+          "%i/%i (version %i)\n",
+          s->pid, table_id, table_id_ext, section_number,
+          last_section_number, section_version_number);
+
+    switch (table_id) {
+      case 0x00:
+        verbose("PAT\n");
+        section_processed=ParsePat (buf, section_length, table_id_ext);
+        break;
+
+      case 0x02:
+        verbose("PMT 0x%04x for service 0x%04x sect.num %d last %d\n", s->pid, table_id_ext,section_number, last_section_number);
+        section_processed=ParsePmt (s->buf);
+        break;
+
+      case 0x42:
+      case 0x46:
+        verbose("SDT (%s TS) sect.num %d last %d\n", table_id == 0x42 ? "actual":"other",section_number, last_section_number);
+        section_processed=ParseSdt (s->buf);
+        break;
+
+      default:
+        verbosedebug("skip table_id 0x%02x\n", table_id);
+        section_processed=true;
+        ;
+    };
+
+    if (section_processed)
+      set_bit (s->section_done, section_number);
+
+    for (i = 0; i <= last_section_number; i++)
+      if (get_bit (s->section_done, i) == 0)
+        break;
+
+    if (i > last_section_number)
+      s->sectionfilter_done = true;
+  }
+
+  if (s->sectionfilter_done)
+    return 1;
+
+  return 0;
+}
+
+
+int cChannelScanner::ReadSections(cSectionBuf *s)
+{
+  int section_length, count;
+
+  if (s->sectionfilter_done)
+    return 1;
+
+  /* the section filter API guarantess that we get one full section
+   * per read(), provided that the buffer is large enough (it is)
+   */
+  if (((count = read (s->fd, s->buf, sizeof(s->buf))) < 0) && errno == EOVERFLOW) {
+    warning("EOVERFLOW reading section\n");
+    count = read (s->fd, s->buf, sizeof(s->buf));}
+    if (count < 0) {
+      errorn("ReadSections: read error");
+      return -1;
     }
+
+  if (count < 4) {
+    warning("Section length <4\n");
+    return -1;
+  }
+
+  section_length = ((s->buf[1] & 0x0f) << 8) | s->buf[2];
+
+  if (count != section_length + 3) {
+    warning("Read %d bytes but section length should be %d\n",count,section_length);
+    return -1;
+  }
+
+  if (ParseSection(s) == 1)
+    return 1;
+
+  return 0;
 }
 
-void SdtFilter::ResetFound(void)
+cSectionBuf* cChannelScanner::SetupFilter(int pid, int tid, int tid_ext, int timeout)
 {
-  channelsFound=0;
+  cSectionBuf *s = new cSectionBuf;
+
+  s->fd = -1;
+  s->pid = pid;
+  s->table_id = tid;
+  s->retries = 0;
+
+  s->timeout = timeout;
+
+  s->table_id_ext = tid_ext;
+  s->section_version_number = -1;
+
+  return s;
+}
+
+void cChannelScanner::UpdatePollFds(void)
+{
+  cSectionBuf* s;
+  int i;
+
+  memset(poll_section_bufs, 0, sizeof(poll_section_bufs));
+  for (i = 0; i < MAX_RUNNING_FILTERS; i++)
+    poll_fds[i].fd = -1;
+  i = 0;
+  for (s = running_filters.First(); s; s = running_filters.Next(s)) {
+    if (i >= MAX_RUNNING_FILTERS)
+      fatal("too many poll_fds\n");
+    if (s->fd == -1)
+      fatal("s->fd == -1 on running_filters\n");
+    verbosedebug("poll fd %d\n", s->fd);
+    poll_fds[i].fd = s->fd;
+    poll_fds[i].events = POLLIN;
+    poll_fds[i].revents = 0;
+    poll_section_bufs[i] = s;
+    i++;
+  }
+}
+
+bool cChannelScanner::StartFilter(cSectionBuf* s)
+{
+  struct dmx_sct_filter_params f;
+
+  if (running_filters.Count() >= MAX_RUNNING_FILTERS)
+    goto err0;
+  if ((s->fd = open (dmx_devname, O_RDWR | O_NONBLOCK)) < 0)
+    goto err0;
+
+  verbosedebug("start filter pid 0x%04x table_id 0x%02x\n", s->pid, s->table_id);
+
+  memset(&f, 0, sizeof(f));
+
+  f.pid = (uint16_t) s->pid;
+
+  if (s->table_id < 0x100 && s->table_id > 0) {
+    f.filter.filter[0] = (uint8_t) s->table_id;
+    f.filter.mask[0]   = 0xff;
+  }
+  if (s->table_id_ext < 0x10000 && s->table_id_ext > 0) {
+    f.filter.filter[1] = (uint8_t) ((s->table_id_ext >> 8) & 0xff);
+    f.filter.filter[2] = (uint8_t) (s->table_id_ext & 0xff);
+    f.filter.mask[1] = 0xff;
+    f.filter.mask[2] = 0xff;
+  }
+
+  f.timeout = 0;
+  f.flags = DMX_IMMEDIATE_START | DMX_CHECK_CRC;
+
+  if (ioctl(s->fd, DMX_SET_FILTER, &f) == -1) {
+    errorn ("ioctl DMX_SET_FILTER failed");
+    goto err1;
+  }
+
+  s->sectionfilter_done = false;
+  time(&s->start_time);
+
+  for (cSectionBuf *s2 = waiting_filters.First(); s2; s2 = waiting_filters.Next(s2))
+    if (s==s2) {
+      waiting_filters.Del(s2,false);
+      break;
+    }
+  running_filters.Add(s);
+
+  UpdatePollFds();
+
+  return true;
+
+err1:
+  ioctl (s->fd, DMX_STOP);
+  close (s->fd);
+err0:
+  return false;
+}
+
+
+void cChannelScanner::StopFilter(cSectionBuf *s)
+{
+  verbosedebug("stop filter pid 0x%04x\n", s->pid);
+  ioctl (s->fd, DMX_STOP);
+  close (s->fd);
+  s->fd = -1;
+  running_filters.Del(s,false);
+  s->running_time += time(NULL) - s->start_time;
+  UpdatePollFds();
+}
+
+
+void cChannelScanner::AddFilter(cSectionBuf *s)
+{
+  verbosedebug("add filter pid 0x%04x\n", s->pid);
+  if (!StartFilter (s))
+    waiting_filters.Add(s);
+}
+
+
+void cChannelScanner::RemoveFilter(cSectionBuf *s)
+{
+  verbosedebug("remove filter pid 0x%04x\n", s->pid);
+  StopFilter (s);
+
+  for (s = waiting_filters.First(); s; s = waiting_filters.Next(s)) {
+    if (!StartFilter (s))
+      break;
+  };
+}
+
+void cChannelScanner::ReadFilters(void)
+{
+  cSectionBuf *s;
+  int i, n, done;
+
+  n = poll(poll_fds, running_filters.Count(), 100);
+  if (n == -1)
+    errorn("poll");
+
+  for (i = 0; i < running_filters.Count(); i++) {
+    s = poll_section_bufs[i];
+    if (!s)
+      fatal("poll_section_bufs[%d] is NULL\n", i);
+    if (poll_fds[i].revents)
+      done = ReadSections (s) == 1;
+    else
+      done = 0; /* timeout */
+    if (done || time(NULL) > s->start_time + s->timeout) {
+      if (done)
+        verbosedebug("filter done pid 0x%04x\n", s->pid);
+      else
+        warning("filter timeout pid 0x%04x\n", s->pid);
+    RemoveFilter (s);
+    if (!done && s->retries<2) {
+      s->retries++;
+      s->timeout = s->timeout + 2;
+      warning("trying again pid 0x%04x try %d\n", s->pid, s->retries+1);
+      AddFilter(s);
+    }
+    else
+      delete s;
+    }
+  }
+}
+
+
+void cChannelScanner::Cleanup(void)
+{
+  cSectionBuf* s;
+
+  for (s = waiting_filters.First(); s; s = waiting_filters.Next(s))
+    waiting_filters.Del(s);
+  for (s = running_filters.First(); s; s = running_filters.Next(s)) {
+    StopFilter(s);
+    delete s;
+  }
+}
+
+void cChannelScanner::ScanTransponder(void)
+{
+ /**
+  *  filter timeouts > min repetition rates specified in ETR211
+  */
+
+ /**
+  * Scan completely the SDT first, so that it will create channels
+  */
+  AddFilter (SetupFilter (0x11, 0x42, -1, 5)); /* SDT */
+  do {
+    ReadFilters ();
+  } while (Running() && running_filters.Count()+waiting_filters.Count()>0);
+		   
+  if (!Running())
+    return;	   
+		   
+ /**
+  * then scan the pat to update the pids
+  */
+  AddFilter (SetupFilter (0x00, 0x00, -1, 5)); /* PAT */
+  do {
+    ReadFilters ();
+  } while (Running() && running_filters.Count()+waiting_filters.Count()>0);
+}
+
+
+//---- utility class to get the name of the demux device
+class cCrackDvbDevice:public cDvbDevice {
+public:
+  cString DemuxDevname() { return DvbName(DEV_DVB_DEMUX, adapter, frontend);}
+};
+
+cChannelScanner::cChannelScanner(cDevice *ADevice, cChannel *TransponderData)
+{
+  cCrackDvbDevice *crack=static_cast<cCrackDvbDevice *>(ADevice);
+  dmx_devname=crack->DemuxDevname();
+  transponderData=TransponderData;
+  totalFound=0;
   newFound=0;
+  info("Channel scanner created %s\n",(const char *)dmx_devname);
 }
 
-int SdtFilter::ChannelsFound(void)
+
+cChannelScanner::~cChannelScanner(void)
 {
-  return channelsFound;
+  Cancel(5); //give enoug time for Action to end  
 }
 
-int SdtFilter::NewFound(void)
+void cChannelScanner::Action(void)
 {
-  return newFound;
+  for (int i = 0; i < MAX_RUNNING_FILTERS; i++)
+    poll_fds[i].fd = -1;
+  Channels.Lock(true);
+  ScanTransponder ();
+  if (running_filters.Count()+waiting_filters.Count()==0)
+    info("Scan ended\n");
+  else {   
+    info("Scan interrupted, cleaning up\n");
+    Cleanup ();
+  }   
+  Channels.Unlock();
+  CheckFoundPids();
 }
+

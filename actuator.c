@@ -22,7 +22,7 @@
 #include <vdr/osd.h>
 #include <vdr/pat.h>
 #include <math.h>
-#include "filter.h"
+#include "scanner.h"
 #include "module/actuator.h"
 
 #define DEV_DVB_FRONTEND "frontend"
@@ -609,14 +609,19 @@ private:
   uint32_t fe_unc;
   cTimeMs *scantime;
   cTimeMs *refresh;
-  SdtFilter *SFilter;
-  PatFilter *PFilter;
+  cChannelScanner *Scanner;
   enum sm {
     SM_NONE,
     SM_TRANSPONDER,
     SM_SATELLITE
     } scanmode;
-  bool showScanResult;  
+  enum ss {
+    SS_WAITING_FOR_LOCK,
+    SS_NO_LOCK,
+    SS_SCANNING
+  } scanstatus;
+  bool showScanResult;
+  int TotalFound,NewFound;  
   void DisplayOsd(void);
   void GetSignalInfo(void);
   void Tune(bool live=true);
@@ -816,13 +821,30 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   if(Key!=kNone && scanmode==SM_NONE) showScanResult=false;
   
   //-------------------------------------------
+  // Scanning: waiting for lock
+  //-------------------------------------------
+  
+  if (scanmode!=SM_NONE && scanstatus==SS_WAITING_FOR_LOCK) {
+      GetSignalInfo();
+      if (fe_status & FE_HAS_LOCK) {
+        Scanner=new cChannelScanner(ActuatorDevice,SChannel);
+        Scanner->Start();
+        scanstatus=SS_SCANNING;
+      } else {
+        if (scantime->Elapsed()>=4000) 
+          scanstatus=SS_NO_LOCK;
+      }     
+  }
+  
+  //-------------------------------------------
   //Scanning transponder
   //-------------------------------------------
   if(scanmode==SM_TRANSPONDER) {
-      if (Key!=kNone || scantime->Elapsed()>=10000 || PFilter->EndOfScan()) {
+      if (Key!=kNone || scanstatus==SS_NO_LOCK || (scanstatus==SS_SCANNING && !Scanner->Active())) {
         scanmode=SM_NONE;
         StopScan();
-        Channels.Save();
+        if (scanstatus==SS_SCANNING)
+          Channels.Save();
       }
       Refresh();
       return state;
@@ -833,12 +855,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   //Scanning satellite
   //-------------------------------------------
   if(scanmode==SM_SATELLITE) {
-      bool haslock=true;
-      if (scantime->Elapsed()>=1000 && scantime->Elapsed()<2000) {
-        GetSignalInfo();
-        haslock=fe_status & FE_HAS_LOCK;
-      }     
-      if (!haslock || scantime->Elapsed()>=10000 || PFilter->EndOfScan()) {
+      if (scanstatus==SS_NO_LOCK || (scanstatus==SS_SCANNING && !Scanner->Active())) {
         StopScan();
         curtransponder=Transponders->Next(curtransponder);
         if(curtransponder) {
@@ -857,7 +874,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
           Channels.Save();
         }
       }
-      if (Key!=kNone && scanmode!=SM_NONE) {
+      if (Key!=kNone) {
         StopScan();
         scanmode=SM_NONE;
         Channels.Save();
@@ -1152,6 +1169,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (conf==0) conf=1;
                    else {
                      scanmode=SM_TRANSPONDER;
+                     TotalFound=0;
+                     NewFound=0;
                      StartScan();
                      conf=0;
                    }
@@ -1170,6 +1189,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                        menuvalue[MI_APID]=0;  //FIXME
                        Pol=curtransponder->Polarization();
                        scanmode=SM_SATELLITE;
+                       TotalFound=0;
+                       NewFound=0;
                        StartScan();
                        conf=0;
                      }
@@ -1301,7 +1322,7 @@ void cMainMenuActuator::DisplayOsd(void)
              text=clrHeaderTextError;
              break;
           default:
-             if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
+             if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
              else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
              background=clrHeaderBg;
              text=clrHeaderText;
@@ -1539,22 +1560,17 @@ void cMainMenuActuator::StartScan(bool live)
       showScanResult=true;
       Tune(live);
       scantime->Set();
-      PFilter=new PatFilter();
-      SFilter=new SdtFilter(PFilter);
-      if (live) SdtFilter::ResetFound();
-      PFilter->SetSdtFilter(SFilter);
-      ActuatorDevice->AttachFilter(SFilter);
-      ActuatorDevice->AttachFilter(PFilter);
-  
+      scanstatus=SS_WAITING_FOR_LOCK;
 }
 
 void cMainMenuActuator::StopScan(void)
 {
-     printf("     Scanned in %lld ms, found %d channels (new %d)\n", scantime->Elapsed(), SdtFilter::ChannelsFound(), SdtFilter::NewFound());
-     ActuatorDevice->Detach(PFilter);
-     ActuatorDevice->Detach(SFilter);
-     delete PFilter;
-     delete SFilter;
+     if (scanstatus==SS_SCANNING) {
+       printf("     Scanned in %lld ms, found %d channels (new %d)\n", scantime->Elapsed(), Scanner->TotalFound(), Scanner->NewFound());
+       TotalFound+=Scanner->TotalFound();
+       NewFound+=Scanner->NewFound();
+       delete Scanner;
+     }
 }
 
 int cMainMenuActuator::Selected(void)
