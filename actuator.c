@@ -507,6 +507,8 @@ class cTransponder:public cListObject {
 private:
   int frequency;
   int srate;
+  int system;
+  int modulation;
   char polarization;
   
 public:
@@ -515,6 +517,8 @@ public:
   bool Parse(const char *s);
   int Frequency(void) const { return frequency; }
   int Srate(void) const { return srate; }
+  int System(void) const { return system; }
+  int Modulation(void) const { return modulation; }
   char Polarization(void) const { return polarization; }
   };
 
@@ -528,9 +532,41 @@ cTransponder::~cTransponder()
 bool cTransponder::Parse(const char *s)
 {
   int dummy;
-  if (4 != sscanf(s, "%d =%d , %c ,%d ", &dummy, &frequency, &polarization, &srate)) {
+  int locsystem;
+  int locmodulation;
+  int fec;
+  char modstring[10];
+  char sysstring[3];
+  bool parsed=false;
+  
+  if (7 == sscanf(s,"%d =%d , %c , %d , %d , %2s ; %9s", &dummy, &frequency, &polarization, &srate, &fec, sysstring, modstring)) { //DVBS2
+    if (strcasecmp(sysstring,"S2")==0) {
+      locsystem=SYS_DVBS2;
+      if (strcasecmp(modstring,"8PSK")==0)
+        locmodulation=PSK_8;
+      else if (strcasecmp(modstring,"16APSK")==0)
+        locmodulation=APSK_16;
+      else if (strcasecmp(modstring,"32APSK")==0)
+        locmodulation=APSK_32;
+      else if (strcasecmp(modstring,"DIRECTV")==0)
+        locmodulation=DQPSK;
+      else        
+        locmodulation=QPSK;
+      parsed=true;
+      }
+  }    
+  
+  if (!parsed && 4 == sscanf(s, "%d =%d , %c ,%d ", &dummy, &frequency, &polarization, &srate)) { //DVBS
+    locsystem=SYS_DVBS;
+    locmodulation=QPSK;
+    parsed=true;
+    }
+  
+  if (!parsed) {
     frequency=0; //hack 
     } else {
+    system=locsystem;
+    modulation=locmodulation;
     if (polarization=='v') polarization='V';
     if (polarization=='h') polarization='H';
     if (polarization=='l') polarization='L';
@@ -609,6 +645,7 @@ private:
   uint32_t fe_unc;
   cTimeMs *scantime;
   cTimeMs *refresh;
+  cTimeMs *lockstable;
   cChannelScanner *Scanner;
   enum sm {
     SM_NONE,
@@ -718,6 +755,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   scanmode=SM_NONE;
   showScanResult=false;
   scantime=new cTimeMs();
+  lockstable=new cTimeMs();
   refresh=new cTimeMs();
   refresh->Set(-MinRefresh);
   
@@ -750,6 +788,7 @@ cMainMenuActuator::~cMainMenuActuator()
   delete SChannel;
   delete Transponders;
   delete scantime;
+  delete lockstable;
   delete refresh;
   close(fd_frontend);
   //Don't change channel if we're only showing the position
@@ -827,10 +866,13 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   if (scanmode!=SM_NONE && scanstatus==SS_WAITING_FOR_LOCK) {
       GetSignalInfo();
       if (fe_status & FE_HAS_LOCK) {
-        Scanner=new cChannelScanner(ActuatorDevice,SChannel);
-        Scanner->Start();
-        scanstatus=SS_SCANNING;
+        if (lockstable->Elapsed()>=500) {
+          Scanner=new cChannelScanner(ActuatorDevice,SChannel);
+          Scanner->Start();
+          scanstatus=SS_SCANNING;
+          }
       } else {
+        lockstable->Set();
         if (scantime->Elapsed()>=4000) 
           scanstatus=SS_NO_LOCK;
       }     
@@ -862,11 +904,12 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
           transponderindex++;
           menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
           menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+          menuvalue[MI_SYSTEM]=curtransponder->System();
+          menuvalue[MI_MODULATION]=curtransponder->Modulation();
           menuvalue[MI_VPID]=0;  //FIXME
           menuvalue[MI_APID]=0;  //FIXME
           Pol=curtransponder->Polarization();
           StartScan(false);
-          scantime->Set();
         } else {
           scanmode=SM_NONE;
           transponderindex=1;
@@ -927,6 +970,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if (curtransponder) {
                         menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
                         menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                        menuvalue[MI_SYSTEM]=curtransponder->System();
+                        menuvalue[MI_MODULATION]=curtransponder->Modulation();
                         Pol=curtransponder->Polarization();
                       }
                     }
@@ -976,6 +1021,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if (curtransponder) {
                         menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
                         menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                        menuvalue[MI_SYSTEM]=curtransponder->System();
+                        menuvalue[MI_MODULATION]=curtransponder->Modulation();
                         Pol=curtransponder->Polarization();
                       }
                     }
@@ -1130,35 +1177,19 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 case MI_MODULATION:
                   switch (menuvalue[MI_MODULATION]) {
                         case QPSK:
-                          menuvalue[MI_MODULATION]=QAM_16;
-                          break;
-                        case QAM_16:
-                          menuvalue[MI_MODULATION]=QAM_32;
-                          break;
-                        case QAM_32:
-                          menuvalue[MI_MODULATION]=QAM_64;
-                          break;
-                        case QAM_64:
-                          menuvalue[MI_MODULATION]=QAM_128;
-                          break;
-                        case QAM_128:
-                          menuvalue[MI_MODULATION]=QAM_256;
-                          break;
-                        case QAM_256:
-                          menuvalue[MI_MODULATION]=QAM_AUTO;
-                          break;
-                        case QAM_AUTO:
-                          menuvalue[MI_MODULATION]=VSB_8;
-                          break;
-                        case VSB_8:
-                          menuvalue[MI_MODULATION]=VSB_16;
-                          break;
-                        case VSB_16:
                           menuvalue[MI_MODULATION]=PSK_8;
                           break;
                         case PSK_8:
-                          menuvalue[MI_MODULATION]=QPSK;
+                          menuvalue[MI_MODULATION]=APSK_16;
                           break;
+                        case APSK_16:
+                          menuvalue[MI_MODULATION]=APSK_32;
+                          break;
+                        case APSK_32:
+                          menuvalue[MI_MODULATION]=DQPSK;
+                          break;
+                        default:
+                          menuvalue[MI_MODULATION]=QPSK;  
                   }
                   break;       
                 case MI_SCANTRANSPONDER:
@@ -1185,6 +1216,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      else {
                        menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
                        menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
+                       menuvalue[MI_SYSTEM]=curtransponder->System();
+                       menuvalue[MI_MODULATION]=curtransponder->Modulation();
                        menuvalue[MI_VPID]=0;  //FIXME
                        menuvalue[MI_APID]=0;  //FIXME
                        Pol=curtransponder->Polarization();
@@ -1560,6 +1593,7 @@ void cMainMenuActuator::StartScan(bool live)
       showScanResult=true;
       Tune(live);
       scantime->Set();
+      lockstable->Set();
       scanstatus=SS_WAITING_FOR_LOCK;
 }
 

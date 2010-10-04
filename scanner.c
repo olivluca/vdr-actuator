@@ -998,6 +998,7 @@ cChannelScanner::cChannelScanner(cDevice *ADevice, cChannel *TransponderData)
   totalFound=0;
   newFound=0;
   info("Channel scanner created %s\n",(const char *)dmx_devname);
+  info("Transponder data %d:%s:%s:%d\n",transponderData->Frequency(),transponderData->Parameters(),*cSource::ToString(transponderData->Source()),transponderData->Srate());
 }
 
 
