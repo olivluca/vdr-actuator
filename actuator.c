@@ -22,12 +22,13 @@
 #include <vdr/osd.h>
 #include <vdr/pat.h>
 #include <math.h>
+#include <getopt.h>
 #include "scanner.h"
 #include "module/actuator.h"
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.1.1";
+static const char *VERSION        = "1.2.0";
 static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
 static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
@@ -66,6 +67,8 @@ static const int itemsperrow[] = {
 
 #define MAXMENUITEM MI_DELETE
 #define MAXROW 11
+#define MINROWSCANONLY 4
+#define MINITEMSCANONLY MI_SATPOSITION
 
 
 //Selectable buttons on the plugin menu: captions
@@ -121,6 +124,7 @@ static const int menudigits[] = {
 //Plugin parameters 
 int DvbKarte=0;
 int WestLimit=0;
+bool ScanOnly=false; //use the plugin only as channel scanner, not as a positioner
 unsigned int MinRefresh=250;
 int ShowChanges=1;
 //EastLimit is always 0
@@ -711,12 +715,16 @@ cMainMenuActuator::cMainMenuActuator(void)
   errormessage=EM_NONE;
   menucolumn=menuvalue[MI_STEPSEAST]=menuvalue[MI_STEPSWEST]=1;
   menuline=1;
+  if (ScanOnly) {
+    menuline=MINROWSCANONLY;
+    menucolumn=0;
+  }
   osd=NULL;
   digits=0;
   LimitsDisabled=false;
   HideOsd=false;
   //if we're not going to interact with the actuator, don't save the value of UpdateChannels
-  if (!PositionDisplay) PosTracker->SaveUpdate();
+  if (!ScanOnly && !PositionDisplay) PosTracker->SaveUpdate();
   static char buffer[PATH_MAX];
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
   fd_frontend = open(buffer,O_RDONLY);
@@ -741,11 +749,8 @@ cMainMenuActuator::cMainMenuActuator(void)
   menuvalue[MI_MODULATION]=dtp.Modulation();
   menuvalue[MI_VPID]=OldChannel->Vpid();
   menuvalue[MI_APID]=OldChannel->Apid(0);
-  actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  //fast refresh only when the dish is moving
-  //(now always, to show signal information more timely)
-  SetNeedsFastResponse(true); //((status.state == ACM_EAST) || (status.state == ACM_WEST));
+  //fast refresh to show signal information in a timely way
+  SetNeedsFastResponse(true);
   if (Setup.UseSmallFont == 0) {
     // Dirty hack to force the small fonts...
     Setup.UseSmallFont = 1;
@@ -798,8 +803,10 @@ cMainMenuActuator::~cMainMenuActuator()
     PositionDisplay=false;
     return;
   }  
-  CHECK(ioctl(fd_actuator, AC_MSTOP));
-  PosTracker->RestoreUpdate();
+  if (!ScanOnly) {
+    CHECK(ioctl(fd_actuator, AC_MSTOP));
+    PosTracker->RestoreUpdate();
+  }  
   if (OldChannel) {
     if (HasSwitched) {
       if (cDevice::GetDevice(OldChannel,0,true)==ActuatorDevice) {
@@ -824,6 +831,7 @@ void cMainMenuActuator::Refresh(void)
 
 eOSState cMainMenuActuator::ProcessKey(eKeys Key)
 {
+  actuator_status status;
   if (ActuatorDevice == NULL) {
     Skins.Message(mtError,tr("Card not available"));
     return osEnd;
@@ -831,13 +839,14 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   int selected=Selected();
   int newpos;
   eOSState state = osContinue;
-  actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  if ((status.position<=0 && status.state==ACM_EAST || 
-       status.position>=WestLimit && status.state==ACM_WEST) && !LimitsDisabled) {
-    CHECK(ioctl(fd_actuator, AC_MSTOP));
-    errormessage=EM_ATLIMITS;
-  }
+  if (!ScanOnly) {
+    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    if ((status.position<=0 && status.state==ACM_EAST || 
+         status.position>=WestLimit && status.state==ACM_WEST) && !LimitsDisabled) {
+      CHECK(ioctl(fd_actuator, AC_MSTOP));
+      errormessage=EM_ATLIMITS;
+    }
+  }  
   //Skip normal key processing if we're just showing the position
   if (PositionDisplay) {
     Refresh();
@@ -1045,20 +1054,20 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     case kUp:
     case kUp|k_Repeat:
                 menuline--;
-                if (menuline<0) menuline=MAXROW;
+                if (menuline<0 || (ScanOnly && menuline<MINROWSCANONLY)) menuline=MAXROW;
                 if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) { 
                   menuline--;
-                  if (menuline<0) menuline=MAXROW;
+                  if (menuline<0 || (ScanOnly && menuline<MINROWSCANONLY)) menuline=MAXROW;
                 }  
                 if (menucolumn>=itemsperrow[menuline]) menucolumn=itemsperrow[menuline]-1;
                 break;
     case kDown: 
     case kDown|k_Repeat:
                 menuline++;
-                if (menuline>MAXROW) menuline=0;
+                if (menuline>MAXROW) menuline=ScanOnly ? MINROWSCANONLY : 0;
                 if (menuvalue[MI_SCANSATELLITE]==0 && Selected()==MI_SCANSATELLITE) {
                   menuline++;
-                  if (menuline>MAXROW) menuline=0;
+                  if (menuline>MAXROW) menuline=ScanOnly ? MINROWSCANONLY : 0;
                 }  
                 if (menucolumn>=itemsperrow[menuline]) menucolumn=itemsperrow[menuline]-1;
                 break;
@@ -1202,7 +1211,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                   }
                   break;       
                 case MI_SCANTRANSPONDER:
-                   if (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE) {
+                   if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                      errormessage=EM_NOTPOSITIONED;
                      break;
                    }     
@@ -1217,7 +1226,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    break;
                 case MI_SCANSATELLITE:
                    if(curtransponder) { 
-                     if (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE) {
+                     if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                        errormessage=EM_NOTPOSITIONED;
                        break;
                      }     
@@ -1312,10 +1321,13 @@ void cMainMenuActuator::Show(void)
   osd = cOsdProvider::NewOsd(Setup.OSDLeft, Setup.OSDTop);
   if (osd) {
     int rowheight=textfont->Height();
+    int maxrowmenu = 19;
+    if (ScanOnly)
+     maxrowmenu = maxrowmenu - MINROWSCANONLY;
     tArea Area[] = 
       {{ 0, 0,           Setup.OSDWidth-1, rowheight*6-1,  4},  //rows 0..5  signal info
-       { 0, rowheight*7, Setup.OSDWidth-1, rowheight*19-1, 2},  //rows 7..18 menu
-       { 0, rowheight*19,Setup.OSDWidth-1, rowheight*20-1, 4}}; //row  19    prompt/error
+       { 0, rowheight*7, Setup.OSDWidth-1, rowheight*maxrowmenu-1, 4},  //rows 7..18 menu
+       { 0, rowheight*maxrowmenu,Setup.OSDWidth-1, rowheight*maxrowmenu+rowheight-1, 4}}; //row  19    prompt/error
     //only the top area if we're just showing the position   
     osd->SetAreas(Area, PositionDisplay ? 1 : 3);
   } else esyslog("Darn! Couldn't create osd");
@@ -1346,41 +1358,51 @@ void cMainMenuActuator::DisplayOsd(void)
            osd->Flush();
            return;
          }
-         //only the top area if we're just showing the position
-         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*(PositionDisplay ? 6 : 20)-1,clrBackground);
+         //background of the top area
+         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*6-1,clrBackground);
+         //background of the main menu area
+         if (!PositionDisplay)
+           osd->DrawRectangle(0,rowheight*7,Setup.OSDWidth,rowheight*20 - (ScanOnly ? MINROWSCANONLY: 0)-1,clrNormalBg);
          char buf[512];
          char buf2[512];
          
          int y=0;
          
-         actuator_status status;
          tColor text, background;
-         CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-         switch(status.state) {
-           case ACM_STOPPED:
-           case ACM_CHANGE:
-             snprintf(buf,sizeof(buf), tr(dishwait));
-             background=clrHeaderBg;
-             text=clrHeaderText;
-             break;
-           case ACM_REACHED:
-             snprintf(buf,sizeof(buf), tr(dishreached));
-             background=clrHeaderBg;
-             text=clrHeaderText;
-             break;
-           case ACM_ERROR:
-             snprintf(buf,sizeof(buf), tr(disherror));
-             background=clrHeaderBgError;
-             text=clrHeaderTextError;
-             break;
-          default:
-             if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
-             else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
-             background=clrHeaderBg;
-             text=clrHeaderText;
-         }    
+         if (ScanOnly) {
+           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
+           else buf[0]=0;
+           background=clrHeaderBg;
+           text=clrHeaderText;
+         } else { 
+           actuator_status status;
+           CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+           switch(status.state) {
+             case ACM_STOPPED:
+             case ACM_CHANGE:
+               snprintf(buf,sizeof(buf), tr(dishwait));
+               background=clrHeaderBg;
+               text=clrHeaderText;
+               break;
+             case ACM_REACHED:
+               snprintf(buf,sizeof(buf), tr(dishreached));
+               background=clrHeaderBg;
+               text=clrHeaderText;
+               break;
+             case ACM_ERROR:
+               snprintf(buf,sizeof(buf), tr(disherror));
+               background=clrHeaderBgError;
+               text=clrHeaderTextError;
+               break;
+            default:
+               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
+               else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
+               background=clrHeaderBg;
+               text=clrHeaderText;
+           }
+         }      
          osd->DrawRectangle(0,y,CORNER-1,y+rowheight-1,background);  
-         snprintf(buf2,sizeof(buf2),"%s - %s", tr(MAINMENUENTRY), buf);
+         snprintf(buf2,sizeof(buf2),"%s %s", tr(MAINMENUENTRY), buf);
          osd->DrawText(CORNER,y,buf2,text,background,textfont,Setup.OSDWidth,y+rowheight-1,taLeft);
          TopCorners;
          
@@ -1443,14 +1465,15 @@ void cMainMenuActuator::DisplayOsd(void)
          int colspace=6;
          int colwidth=(pagewidth+colspace)/3;
          int curcol=0;
-         int currow=0;
+         int currow=ScanOnly ? MINROWSCANONLY : 0;
          
-         y+=rowheight; //enter second display area
+         //enter second display area
+         y+=rowheight;
          TopCorners;
          
          int selected=Selected();
            
-         for (int itemindex=0; itemindex<=MAXMENUITEM; itemindex++) {
+         for (int itemindex=ScanOnly ? MINITEMSCANONLY : 0; itemindex<=MAXMENUITEM; itemindex++) {
            int ipr=itemsperrow[currow];
            int x=left+curcol*(pagewidth/ipr);
            if (curcol>0) x+=colspace/2;
@@ -1489,12 +1512,14 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
                break;
              case MI_SATPOSITION:
-               curwidth-=colwidth;
-               if (curPosition) {
-                 snprintf(buf, sizeof(buf),"%d",curPosition->Position());
-                 osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);                 
-               } else osd->DrawText(x+curwidth,y,tr(dishnopos),text,background,textfont,colwidth,rowheight,taRight);
-               snprintf(buf,sizeof(buf), "%s %s:",*cSource::ToString(curSource->Code()),curSource->Description()); 
+               if (!ScanOnly) {
+                 curwidth-=colwidth;
+                 if (curPosition) {
+                   snprintf(buf, sizeof(buf),"%d",curPosition->Position());
+                   osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);                 
+                 } else osd->DrawText(x+curwidth,y,tr(dishnopos),text,background,textfont,colwidth,rowheight,taRight);
+               }  
+               snprintf(buf,sizeof(buf), "%s %s",*cSource::ToString(curSource->Code()),curSource->Description()); 
                break;  
              case MI_SCANSATELLITE:
                if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
@@ -1506,7 +1531,7 @@ void cMainMenuActuator::DisplayOsd(void)
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
                snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
                break;
-             default:    
+             default:
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
            }
            osd->DrawText(x,y,buf,text,background,textfont,curwidth,rowheight,
@@ -1713,11 +1738,13 @@ cPluginActuator::cPluginActuator(void)
   // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
   statusMonitor = NULL;
   PosTracker = NULL;
-  fd_actuator = open("/dev/actuator",0);
-  if (fd_actuator<0) {
-    esyslog("cannot open /dev/actuator");
-    exit(1);
-  }
+  if (!ScanOnly) {
+    fd_actuator = open("/dev/actuator",0);
+    if (fd_actuator<0) {
+      esyslog("cannot open /dev/actuator");
+      exit(1);
+    }
+  }  
   cThemes::Save("actuator", &Theme);
 }
 
@@ -1728,13 +1755,17 @@ cPluginActuator::~cPluginActuator()
 
 void cPluginActuator::Stop(void)
 {
-  delete statusMonitor;
-  delete PosTracker;
-  close(fd_actuator);
+  if (!ScanOnly) {
+    delete statusMonitor;
+    delete PosTracker;
+    close(fd_actuator);
+  }  
 }
 
 void cPluginActuator::MainThreadHook(void)
 {
+  if (ScanOnly)
+    return;
   //wait if it's not time to show the position
   if (!ShowChanges || !DishIsMoving || Skins.IsOpen() || cOsd::IsOpen()) {
     PosDelay.Set();
@@ -1750,19 +1781,32 @@ void cPluginActuator::MainThreadHook(void)
 const char *cPluginActuator::CommandLineHelp(void)
 {
   // Return a string that describes all known command line options.
-  return NULL;
+  return "  -s,  --scanonly  use the plugin as a channel scanner, not as a positioner\n";
 }
 
 bool cPluginActuator::ProcessArgs(int argc, char *argv[])
 {
-  // Implement command line argument processing here if applicable.
+  static struct option long_options[] = {
+    { "scanonly", no_argument, NULL, 's' },
+    {NULL}
+  };
+  
+  int c;
+  while ((c = getopt_long(argc, argv, "s", long_options, NULL)) != -1) {
+    switch (c) {
+      case 's' : ScanOnly = true;
+                 break;
+      default  : ;           
+    }
+  }  
   return true;
 }
 
 bool cPluginActuator::Initialize(void)
 {
   // Initialize any background activities the plugin shall perform.
-  PosTracker=new cPosTracker();
+  if (!ScanOnly)
+    PosTracker=new cPosTracker();
   return true;
 }
 
@@ -1770,7 +1814,8 @@ bool cPluginActuator::Start(void)
 {
   // Start any background activities the plugin shall perform.
   SatPositions.Load(AddDirectory(ConfigDirectory(), "actuator.conf"));
-  statusMonitor = new cStatusMonitor;
+  if (!ScanOnly)
+    statusMonitor = new cStatusMonitor;
   return true;
 }
 
@@ -1813,12 +1858,14 @@ const char **cPluginActuator::SVDRPHelpPages(void)
     "    Prints the current status of the positioner.",
     NULL
     };
+  if (ScanOnly)
+    return NULL;  
   return HelpPages;  
 }
 
 cString cPluginActuator::SVDRPCommand(const char *Command, const char *Option, int &ReplyCode)
 {
-  if (strcasecmp(Command, "STATUS") == 0) {
+  if (!ScanOnly && strcasecmp(Command, "STATUS") == 0) {
     actuator_status status;
     char buf[500];
     const char *states[] = {

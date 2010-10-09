@@ -15,7 +15,7 @@ the Free Software Foundation; either version 2 of the License, or
 (at your option) any later version.
 See the file COPYING for more information.
 
-THIS VERSION OF THE PLUGIN IS FOR vdr >= 1.5.8
+THIS VERSION OF THE PLUGIN IS FOR vdr >= 1.7.15
 
 DESCRIPTION
 
@@ -31,6 +31,8 @@ geda-gschem, see http://www.geda.seul.org, a png rendering is in
 actuator.png) in the "module" subdirectory.
 You also have to build and load a kernel module (2.6.x kernel needed), look
 in the "module" subdirectory for details.
+You can also use it without an actuator giving it the command line option,
+-s or --scanonly, in this case it will work as a channel scanner.
 
 
 POSITION COUNTING
@@ -61,6 +63,8 @@ connected to the dish driven by the actuator (see below in "KNOWN PROBLEMS"
 about multi cards setups).
 Number 1 here is the first dvb adapter (/dev/dvb/adapter0), 2 the second
 (/dev/dvb/adapter1) and so on.
+If you don't have an actuator, this will be the card used for channel
+scanning.
 You can also set a minimum screen refresh time (in ms) that will be used in
 the plugin main menu: I found that, with a dxr3, if you refresh the screen
 too often the osd gets garbled. I set it to 250 for my dxr3. Note that too
@@ -70,7 +74,7 @@ position when the satellite is changed.
 
 MAIN MENU
 
-In the plugin-menu you see on the top the dish target and position.
+In the plugin-menu you see on the top the dish target and position
 Next there's an indication of the signal strength of the currently
 tuned channel. You also see the dish target and the dish position.
 
@@ -97,14 +101,37 @@ Set Zero        : sets the position of the dish but won't recalculate stored
 Set West Limit  : stores the current position as the west soft limit.
 
 
+The above buttons will only will available in actuator mode (without the -s
+or --scanonly command line option).
+
 If you're positioned on the line showing the current satellite, you can
 select another one with the left and right buttons and go to its position
 with the Ok button.
 
-Frequency, Symbolrate, Vpid & Apid: Here you can select the parameters 
-(switch the polarizaton pressing left/right) of a transponder  you want
-to tune to (by pressing OK) and see what signal-strength you get there.
-When possible you should also see the new channel on screen.
+WARNING if you are using the plugin as a channel scanner only, make sure
+you select the correct satellite, since all found channels will be stored
+under the selected satellite. The same applies if you're using it as an
+actuator, but in that case the plugin will only allow transponder/satellite
+scanning if the position is set and the current position is equal to the
+selected position.
+
+Then there are fields to select the parameters of a transponder:
+
+Frequency: the frecuency (direct entry) and polarization (left and right
+button).
+Symbolrate: direct entry
+Sys: press OK to switch between DVB-S and DVB-S2
+Mod: press OK to switch between the possible modulations (QPSK, 8PSK,
+16APSK, 32APSK and DIRECTV, unfortunately vdr isn't able to display all of
+them so you'll see ??? instead).
+Vpid: direct entry of the video pid
+Apid: direct entry of the autio pid
+
+Pressing OK on any of the fields Frequency, Symbolrate, Vpid or Apid will
+tune to the selected transponder so you can see what signal-strength you get
+there. If you correctly entered the pids, you should also see the new
+channel on screen. Pressing the red key will hide the osd until you press
+any other key, so you can check if you tuned to the correct channel.
 
 Scan Transponder: If you press OK on Scan Transponder, vdr
 will switch to the selected transponder and scan for new/updated channels.
