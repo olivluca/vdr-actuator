@@ -646,6 +646,7 @@ private:
   cTimeMs *scantime;
   cTimeMs *refresh;
   cTimeMs *lockstable;
+  bool HideOsd;
   cChannelScanner *Scanner;
   enum sm {
     SM_NONE,
@@ -713,6 +714,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   osd=NULL;
   digits=0;
   LimitsDisabled=false;
+  HideOsd=false;
   //if we're not going to interact with the actuator, don't save the value of UpdateChannels
   if (!PositionDisplay) PosTracker->SaveUpdate();
   static char buffer[PATH_MAX];
@@ -844,6 +846,13 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
       return osEnd;
     }
     if (status.state==ACM_IDLE) return osEnd;
+    return osContinue;
+  }
+  
+  //Hiding osd, show it again
+  if (HideOsd && Key!=kNone) {
+    HideOsd=false;
+    Refresh();
     return osContinue;
   }
   //needsFastResponse=(status.state != ACM_IDLE);
@@ -1272,6 +1281,10 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
     case kOk|k_Repeat: 
                 repeat=true;
                 break;
+    case kRed:
+                HideOsd=true;
+                Refresh();
+                return state;            
     case kBack: 
                 if (conf==1)
                   conf=0;
@@ -1327,8 +1340,14 @@ void cMainMenuActuator::DisplayOsd(void)
 
       if(osd)
       {
+         //osd momentarily hidden
+         if (HideOsd) {
+           osd->DrawRectangle(0,0,Setup.OSDWidth,Setup.OSDHeight,clrTransparent);
+           osd->Flush();
+           return;
+         }
          //only the top area if we're just showing the position
-         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*(PositionDisplay ? 6 : 13)-1,clrBackground);
+         osd->DrawRectangle(0,0,Setup.OSDWidth,rowheight*(PositionDisplay ? 6 : 20)-1,clrBackground);
          char buf[512];
          char buf2[512];
          

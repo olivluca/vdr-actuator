@@ -308,7 +308,7 @@ bool cChannelScanner::ParsePat(const unsigned char *buf, int section_length,
       goto skip; /* nit pid entry */
 
     if (!IsServiceInSdt(service_id)) {
-      warning("Skipping service x%04x\n",service_id);
+      warning("Skipping service %d\n",service_id);
       goto skip; /* service not found/used in SDT */
     }        
 
@@ -591,7 +591,7 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                            channel = Channels.NewChannel(transponderData, pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
                            //LO removed patFilter->Trigger()
                            }
-                        info(" channel found, name: \"%s\" shortname: \"%s\" provider: \"%s\"\n",  pn, ps, pp); //LO added
+                        info(" channel found, sid: %d name: \"%s\" shortname: \"%s\" provider: \"%s\"\n", SiSdtService.getServiceId(), pn, ps, pp); //LO added
                         }
                    default: ;
                    }
@@ -617,7 +617,7 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                      NewServiceInSdt(Service.getServiceId());
                      //LO in the following line changed Source() to transponderData->Source()
                      cChannel *link = Channels.GetByChannelID(tChannelID(transponderData->Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
-                     info("%s NVOD service found\n", link ? "OLD" : "NEW"); //LO added
+                     info("%s NVOD service found, sid: %d\n", link ? "OLD" : "NEW", Service.getServiceId()); //LO added
                      if (!link) { //LO removed check on Setup.UpdateChannels
                         newFound++; //LO added
                         //LO in the following line changed Source() to transponderData->Source()
@@ -692,7 +692,7 @@ int cChannelScanner::ParseSection(cSectionBuf *s)
   buf += 8;  /* past generic table header */
   section_length -= 5 + 4;  /* header + crc */
   if (section_length < 0) {
-    warning("truncated section (PID 0x%04x, lenght %d)",
+    warning("truncated section (PID %d, lenght %d)",
             s->pid, section_length + 9);
     return 0;
   }
@@ -700,7 +700,7 @@ int cChannelScanner::ParseSection(cSectionBuf *s)
   if (!get_bit(s->section_done, section_number)) {
     bool section_processed = false;
 
-    debug("pid 0x%02x tid 0x%02x table_id_ext 0x%04x, "
+    debug("pid %d tid %d table_id_ext %d, "
           "%i/%i (version %i)\n",
           s->pid, table_id, table_id_ext, section_number,
           last_section_number, section_version_number);
@@ -712,7 +712,7 @@ int cChannelScanner::ParseSection(cSectionBuf *s)
         break;
 
       case 0x02:
-        verbose("PMT 0x%04x for service 0x%04x sect.num %d last %d\n", s->pid, table_id_ext,section_number, last_section_number);
+        verbose("PMT %d for service %d sect.num %d last %d\n", s->pid, table_id_ext,section_number, last_section_number);
         section_processed=ParsePmt (s->buf);
         break;
 
@@ -723,7 +723,7 @@ int cChannelScanner::ParseSection(cSectionBuf *s)
         break;
 
       default:
-        verbosedebug("skip table_id 0x%02x\n", table_id);
+        verbosedebug("skip table_id %d\n", table_id);
         section_processed=true;
         ;
     };
@@ -831,7 +831,7 @@ bool cChannelScanner::StartFilter(cSectionBuf* s)
   if ((s->fd = open (dmx_devname, O_RDWR | O_NONBLOCK)) < 0)
     goto err0;
 
-  verbosedebug("start filter pid 0x%04x table_id 0x%02x\n", s->pid, s->table_id);
+  verbosedebug("start filter pid %d table_id %d\n", s->pid, s->table_id);
 
   memset(&f, 0, sizeof(f));
 
@@ -880,7 +880,7 @@ err0:
 
 void cChannelScanner::StopFilter(cSectionBuf *s)
 {
-  verbosedebug("stop filter pid 0x%04x\n", s->pid);
+  verbosedebug("stop filter pid %d\n", s->pid);
   ioctl (s->fd, DMX_STOP);
   close (s->fd);
   s->fd = -1;
@@ -892,7 +892,7 @@ void cChannelScanner::StopFilter(cSectionBuf *s)
 
 void cChannelScanner::AddFilter(cSectionBuf *s)
 {
-  verbosedebug("add filter pid 0x%04x\n", s->pid);
+  verbosedebug("add filter pid %d\n", s->pid);
   if (!StartFilter (s))
     waiting_filters.Add(s);
 }
@@ -900,7 +900,7 @@ void cChannelScanner::AddFilter(cSectionBuf *s)
 
 void cChannelScanner::RemoveFilter(cSectionBuf *s)
 {
-  verbosedebug("remove filter pid 0x%04x\n", s->pid);
+  verbosedebug("remove filter pid %d\n", s->pid);
   StopFilter (s);
 
   for (s = waiting_filters.First(); s; s = waiting_filters.Next(s)) {
@@ -928,14 +928,14 @@ void cChannelScanner::ReadFilters(void)
       done = 0; /* timeout */
     if (done || time(NULL) > s->start_time + s->timeout) {
       if (done)
-        verbosedebug("filter done pid 0x%04x\n", s->pid);
+        verbosedebug("filter done pid %d\n", s->pid);
       else
-        warning("filter timeout pid 0x%04x\n", s->pid);
+        warning("filter timeout pid %d\n", s->pid);
     RemoveFilter (s);
-    if (!done && s->retries<2) {
+    if (!done && s->retries<1) {
       s->retries++;
       s->timeout = s->timeout + 2;
-      warning("trying again pid 0x%04x try %d\n", s->pid, s->retries+1);
+      warning("trying again pid %d try %d\n", s->pid, s->retries+1);
       AddFilter(s);
     }
     else
