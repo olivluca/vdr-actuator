@@ -347,7 +347,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
         int Ppid = pmt.getPCRPid();
         int Vtype = 0;
         int Apids[MAXAPIDS + 1] = { 0 }; // these lists are zero-terminated
-        int Atypes[MAXDPIDS + 1] = { 0 };
+        int Atypes[MAXAPIDS + 1] = { 0 };
         int Dpids[MAXDPIDS + 1] = { 0 };
         int Dtypes[MAXDPIDS + 1] = { 0 };
         int Spids[MAXSPIDS + 1] = { 0 };
@@ -375,7 +375,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
                       break;
               case 3: // STREAMTYPE_11172_AUDIO
               case 4: // STREAMTYPE_13818_AUDIO
-              case 0x0F: // ISO/IEC 13818-7 Audio with ADTS transport sytax
+              case 0x0F: // ISO/IEC 13818-7 Audio with ADTS transport syntax
               case 0x11: // ISO/IEC 14496-3 Audio with LATM transport syntax
                       {
                       if (NumApids < MAXAPIDS) {
@@ -488,6 +488,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
                              }
                          if (NumDpids < MAXDPIDS) {
                             Dpids[NumDpids] = esPid;
+                            Dtypes[NumDpids] = SI::AC3DescriptorTag;
                             strn0cpy(DLangs[NumDpids], lang, MAXLANGCODE1);
                             NumDpids++;
                             }
