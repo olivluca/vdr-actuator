@@ -28,7 +28,7 @@
 
 #define DEV_DVB_FRONTEND "frontend"
 
-static const char *VERSION        = "1.2.0";
+static const char *VERSION        = "1.2.1";
 static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
 static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
@@ -1738,13 +1738,6 @@ cPluginActuator::cPluginActuator(void)
   // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
   statusMonitor = NULL;
   PosTracker = NULL;
-  if (!ScanOnly) {
-    fd_actuator = open("/dev/actuator",0);
-    if (fd_actuator<0) {
-      esyslog("cannot open /dev/actuator");
-      exit(1);
-    }
-  }  
   cThemes::Save("actuator", &Theme);
 }
 
@@ -1805,8 +1798,14 @@ bool cPluginActuator::ProcessArgs(int argc, char *argv[])
 bool cPluginActuator::Initialize(void)
 {
   // Initialize any background activities the plugin shall perform.
-  if (!ScanOnly)
+  if (!ScanOnly) {
+    fd_actuator = open("/dev/actuator",0);
+    if (fd_actuator<0) {
+      esyslog("cannot open /dev/actuator");
+      return false;
+    }
     PosTracker=new cPosTracker();
+  }  
   return true;
 }
 

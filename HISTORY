@@ -1,7 +1,16 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
-XXXX-XX-XX: Version 1.1.2
-- Changed conditionals (SetPids) for vdr >= 1.7.0
+2010-10-10: Version 1.2.1
+- Bug fix release (version 1.2.0 didn't actually work without /dev/actuator)
+
+2010-10-09: Version 1.2.0
+- Version for current development version of vdr (>= 1.7.15)
+- DVB-S2 support (untested, I don't have DVB-S2 hardware)
+- Experimental seractuator module (uses a serial port instead of a parallel
+  port)
+- Complete rewrite of the channel scanner
+- The plugin can now work without an actuator (i.e. as a channel scanner
+  only) with the command line option "-s" or "--scanonly"
 
 2008-03-23: Version 1.1.1
 - Changes in SetPids call to adapt to vdr >= 1.5.11
