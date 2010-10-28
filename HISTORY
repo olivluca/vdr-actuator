@@ -1,5 +1,9 @@
 VDR Plugin 'actuator' Revision History
 --------------------------------------
+XXXX-XX-XX: Version 1.2.x
+- Added Ukrainian translation provided by Yarema aka Knedlyk 
+  <yupadmin at gmail.com>
+
 2010-10-10: Version 1.2.1
 - Bug fix release (version 1.2.0 didn't actually work without /dev/actuator)
 
