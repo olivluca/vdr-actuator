@@ -1,9 +1,17 @@
 This module controls a linear actuator through the parallel
 port.
 
-D0 (pin 2) is used as a "rotate west" output
-D1 (pin 3) is "rotate east"
-both have to be connected to a driver and a relay
+STROBE (pin 1) is normally high (inactive) and it is pulled low (active)
+               with the actuator device opened, you can use it as an
+               enable line if your PC activates the parallel port data
+               lines during boot-up
+D0    (pin 2)  is used as a "rotate west" output
+D1    (pin 3)  is "rotate east"
+
+D0 and D1 have to be connected to a driver (here I'm using NPN
+transistors) and a relay, if you need it you can also use STROBE to enable
+the movement (remeber that it is active low), if you don't need it you can
+simply omit the PNP transistors.
 
 Ack input (pin 10) is connected to the reed switch in the
 actuator for position control. It has do be connected through

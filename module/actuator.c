@@ -228,6 +228,8 @@ static void testsignal_timer (unsigned long cookie)
 
 int actuator_open (struct inode *inode, struct file *filp)
 {
+    if (module_refcount(THIS_MODULE)==0)
+        parport_frob_control(pport, PARPORT_CONTROL_STROBE, 1);
     try_module_get(THIS_MODULE);
     return 0;
 }
@@ -236,6 +238,8 @@ int actuator_open (struct inode *inode, struct file *filp)
 int actuator_release (struct inode *inode, struct file *filp)
 {
     module_put(THIS_MODULE);
+    if (module_refcount(THIS_MODULE)==0)
+        parport_frob_control(pport, PARPORT_CONTROL_STROBE, 0);
     return 0;
 }
 
