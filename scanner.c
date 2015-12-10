@@ -126,8 +126,8 @@ cCaDescriptors::cCaDescriptors(int Source, int Transponder, int ServiceId)
 
 bool cCaDescriptors::operator== (const cCaDescriptors &arg) const
 {
-  cCaDescriptor *ca1 = caDescriptors.First();
-  cCaDescriptor *ca2 = arg.caDescriptors.First();
+  const cCaDescriptor *ca1 = caDescriptors.First();
+  const cCaDescriptor *ca2 = arg.caDescriptors.First();
   while (ca1 && ca2) {
         if (!(*ca1 == *ca2))
            return false;
@@ -282,7 +282,8 @@ void cChannelScanner::CheckFoundPids(void)
 {
   for (cServiceInSdt *s=services_in_sdt.First(); s; s=services_in_sdt.Next(s))
     if (!s->pids_found) {
-      cChannel *Channel = Channels.GetByServiceID(transponderData->Source(), transponderData->Transponder(), s->service_id);
+      LOCK_CHANNELS_READ;
+      const cChannel *Channel = Channels->GetByServiceID(transponderData->Source(), transponderData->Transponder(), s->service_id);
       warning("Pids not found for service id %d %s\n",s->service_id, Channel ? Channel->Name() : "");
     }   
 }
@@ -328,7 +329,8 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
      SI::PMT pmt(Data, false);
      if (!pmt.CheckCRCAndParse())
         return false;
-     cChannel *Channel = Channels.GetByServiceID(transponderData->Source(), transponderData->Transponder(), pmt.getServiceId());
+     LOCK_CHANNELS_WRITE;   
+     cChannel *Channel = (cChannel *) Channels->GetByServiceID(transponderData->Source(), transponderData->Transponder(), pmt.getServiceId());
      /**************************************************
       Following part copied from pat.c
       Modified lines marked with //LO
@@ -535,9 +537,10 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
         continue; //LO added
       }  //LO added
       //LO in the following 3 lines changed Source() to transponderData->Source()
-      cChannel *channel = Channels.GetByChannelID(tChannelID(transponderData->Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
+      LOCK_CHANNELS_WRITE;
+      cChannel *channel = (cChannel *) Channels->GetByChannelID(tChannelID(transponderData->Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
       if (!channel)
-          channel = Channels.GetByChannelID(tChannelID(transponderData->Source(), 0, transponderData->Transponder(), SiSdtService.getServiceId()));
+          channel = Channels->GetByChannelID(tChannelID(transponderData->Source(), 0, transponderData->Transponder(), SiSdtService.getServiceId()));
       cLinkChannels *LinkChannels = NULL;
       SI::Descriptor *d;
       for (SI::Loop::Iterator it2; (d = SiSdtService.serviceDescriptors.getNext(it2)); ) {
@@ -576,7 +579,7 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                         if (channel) {
                            totalFound++; //LO added
                            info("OLD"); //LO added
-                           channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), channel->Rid());
+                           //FIXME channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), channel->Rid());
                            //LO removed check on Setup.UpdateChannels
                            channel->SetName(pn, ps, pp);
                            // Using SiSdtService.getFreeCaMode() is no good, because some
@@ -589,7 +592,7 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                            totalFound++; //LO added
                            info("NEW"); //LO added
                            newFound++; //LO added
-                           channel = Channels.NewChannel(transponderData, pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
+                           channel = Channels->NewChannel(transponderData, pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
                            //LO removed patFilter->Trigger()
                            }
                         info(" channel found, sid: %d name: \"%s\" shortname: \"%s\" provider: \"%s\"\n", SiSdtService.getServiceId(), pn, ps, pp); //LO added
@@ -617,12 +620,12 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                      totalFound++;
                      NewServiceInSdt(Service.getServiceId());
                      //LO in the following line changed Source() to transponderData->Source()
-                     cChannel *link = Channels.GetByChannelID(tChannelID(transponderData->Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
+                     cChannel *link = Channels->GetByChannelID(tChannelID(transponderData->Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
                      info("%s NVOD service found, sid: %d\n", link ? "OLD" : "NEW", Service.getServiceId()); //LO added
                      if (!link) { //LO removed check on Setup.UpdateChannels
                         newFound++; //LO added
                         //LO in the following line changed Source() to transponderData->Source()
-                        link = Channels.NewChannel(transponderData, "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
+                        link = Channels->NewChannel(transponderData, "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
                         }
                      if (link) {
                         if (!LinkChannels)
@@ -1012,7 +1015,7 @@ void cChannelScanner::Action(void)
 {
   for (int i = 0; i < MAX_RUNNING_FILTERS; i++)
     poll_fds[i].fd = -1;
-  Channels.Lock(true);
+  //Channels.Lock(true);
   ScanTransponder ();
   if (running_filters.Count()+waiting_filters.Count()==0)
     info("Scan ended\n");
@@ -1020,7 +1023,7 @@ void cChannelScanner::Action(void)
     info("Scan interrupted, cleaning up\n");
     Cleanup ();
   }   
-  Channels.Unlock();
+  //Channels.Unlock();
   CheckFoundPids();
 }
 

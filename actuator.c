@@ -400,7 +400,7 @@ private:
   int last_position_shown;
   bool transfer;
 protected:
-  virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber);
+  virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber, bool LiveView);
 public:
   cStatusMonitor();
 };
@@ -411,7 +411,7 @@ cStatusMonitor::cStatusMonitor()
   transfer=false;
 }
 
-void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
+void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber, bool LiveView)
 {
   actuator_status status;
   if (ChannelNumber) {
@@ -433,8 +433,9 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber)
     if ((Device!=cDevice::PrimaryDevice()) || 
         (cDevice::ActualDevice()==cDevice::PrimaryDevice()) || 
         (cDevice::PrimaryDevice()->HasProgramme()) && transfer) {
-      if (DvbKarte==Device->CardIndex()) { 
-        cChannel channel = *Channels.GetByNumber(ChannelNumber);
+      if (DvbKarte==Device->CardIndex()) {
+        LOCK_CHANNELS_READ; 
+        cChannel channel = *Channels->GetByNumber(ChannelNumber);
         //dsyslog("Checking satellite");
         cSatPosition *p=SatPositions.Get(channel.Source());
         int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
@@ -708,7 +709,8 @@ cMainMenuActuator::cMainMenuActuator(void)
     if (cDevice::GetDevice(i)->CardIndex()==DvbKarte) 
       ActuatorDevice=cDevice::GetDevice(i);
   if (ActuatorDevice==NULL) return;
-  OldChannel=Channels.GetByNumber(ActuatorDevice->CurrentChannel());
+  LOCK_CHANNELS_READ;
+  OldChannel=(cChannel *)Channels->GetByNumber(ActuatorDevice->CurrentChannel());
   SChannel=new cChannel();
   repeat=HasSwitched=false;
   conf=0;
@@ -903,8 +905,10 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
       if (Key!=kNone || scanstatus==SS_NO_LOCK || (scanstatus==SS_SCANNING && !Scanner->Active())) {
         scanmode=SM_NONE;
         StopScan();
-        if (scanstatus==SS_SCANNING)
-          Channels.Save();
+        if (scanstatus==SS_SCANNING) {
+          LOCK_CHANNELS_WRITE;
+          Channels->Save();
+        }
       }
       Refresh();
       return state;
@@ -932,13 +936,15 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
           scanmode=SM_NONE;
           transponderindex=1;
           curtransponder=Transponders->First();
-          Channels.Save();
+          LOCK_CHANNELS_WRITE;
+          Channels->Save();
         }
       }
       if (Key!=kNone) {
         StopScan();
         scanmode=SM_NONE;
-        Channels.Save();
+        LOCK_CHANNELS_WRITE;
+        Channels->Save();
       }
       Refresh();
       return state;     
@@ -1499,7 +1505,7 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf, sizeof(buf),"%s %d", tr(menucaption[itemindex]), menuvalue[itemindex]);
                break;  
              case MI_SYSTEM:
-               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], SystemValues));
+               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], SystemValuesSat));
                break;
              case MI_MODULATION:
                snprintf(buf, sizeof(buf),"%s %s ", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], ModulationValues));
@@ -1663,46 +1669,46 @@ void cMainMenuActuator::MarkChannels(void)
 {
       char buffer[1024];
       buffer[0]='+';
-      Channels.Lock(true);
-      for (cChannel* ch=Channels.First(); ch ; ch = Channels.Next(ch)) {
+      LOCK_CHANNELS_WRITE;
+      for (cChannel* ch=Channels->First(); ch ; ch = Channels->Next(ch)) {
         if(ch->Source()==curSource->Code()) {
           strncpy(buffer+1,ch->Name(),1023);
           if(buffer[1]!='+') ch->SetName((const char *)buffer, ch->ShortName(), ch->Provider());
         }          
       }
-      Channels.Unlock();
-      Channels.Save();
+      //Channels.Unlock();
+      Channels->Save();
 }
 
 void cMainMenuActuator::UnmarkChannels(void)
 {
       char buffer[1024];
-      Channels.Lock(true);
-      for (cChannel* ch=Channels.First(); ch ; ch = Channels.Next(ch)) {
+      LOCK_CHANNELS_WRITE;
+      for (cChannel* ch=Channels->First(); ch ; ch = Channels->Next(ch)) {
         if(ch->Name() && (ch->Name()[0]=='+'||ch->Name()[0]=='·')) {
           strncpy(buffer,ch->Name()+1,1023);
           ch->SetName((const char *)buffer, ch->ShortName(), ch->Provider());
         }          
       }
-      Channels.Unlock();
-      Channels.Save();
+      //Channels.Unlock();
+      Channels->Save();
 }
 
 void cMainMenuActuator::DeleteMarkedChannels(void)
 {
-      Channels.Lock(true);
-      cChannel* ch=Channels.First();
+      LOCK_CHANNELS_WRITE;
+      cChannel* ch=Channels->First();
       while(ch) {
-         cChannel* cnext=Channels.Next(ch);
+         cChannel* cnext=Channels->Next(ch);
          if (ch->Name() && ch->Name()[0]=='+') { 
            if (OldChannel && OldChannel==ch) OldChannel=NULL;
-           Channels.Del(ch);
+           Channels->Del(ch);
          }  
          ch=cnext;
       }
-      Channels.Unlock();
-      Channels.ReNumber();
-      Channels.Save();
+      //Channels.Unlock();
+      Channels->ReNumber();
+      Channels->Save();
 }
 
 // --- cPluginActuator ---------------------------------------------------------
