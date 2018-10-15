@@ -414,8 +414,6 @@ void actuator_cleanup(void)
      
     unsigned long flags;
      
-    if(module_refcount(THIS_MODULE)) return;
-
     write_lock_irqsave(&lock,flags);
     stopping = 1; /* prevents the timer from rescheduling and the interrupt from running */
     write_unlock_irqrestore(&lock,flags);
