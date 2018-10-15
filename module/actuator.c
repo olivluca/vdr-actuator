@@ -46,7 +46,7 @@
 #include <linux/parport.h>
 #include <linux/interrupt.h>
 #include <linux/ioctl.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/device.h>
 #include <linux/version.h>
 #include "actuator.h"
@@ -69,6 +69,13 @@
 /* on older kernels, class_device_create will in turn be a compat macro */
 # define device_create(a, b, c, d, e) class_device_create(a, b, c, d, e)
 # define device_destroy(a ,b) class_device_destroy(a,b)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0)
+#define timer_setup(a, b, c) init_timer(a); (a)->function=b
+#define TIMER_FUNC_ARGS unsigned long cookie
+#else
+#define TIMER_FUNC_ARGS struct timer_list * timer
 #endif
 
 /* direction */
@@ -172,7 +179,7 @@ static void set_mode(unsigned int newmode, int newtarget)
   }
 }
 
-static void actuator_timer (unsigned long cookie)
+static void actuator_timer (TIMER_FUNC_ARGS)
 {
   write_lock(&lock);
   if (stopping) {
@@ -205,7 +212,7 @@ static void actuator_timer (unsigned long cookie)
 }  
 
 #ifdef TESTSIGNAL
-static void testsignal_timer (unsigned long cookie)
+static void testsignal_timer (TIMER_FUNC_ARGS)
 {
   write_lock(&lock);
   if (stopping) {
@@ -243,7 +250,7 @@ int actuator_release (struct inode *inode, struct file *filp)
     return 0;
 }
 
-static int actuator_ioctl(struct inode *node, struct file *filep, unsigned int cmd,
+static long actuator_ioctl(struct file *filep, unsigned int cmd,
                           unsigned long arg)
 {
     int result;
@@ -300,7 +307,7 @@ static int actuator_ioctl(struct inode *node, struct file *filep, unsigned int c
 struct file_operations actuator_fops = {
     open: actuator_open,
     release: actuator_release,
-    ioctl: actuator_ioctl,
+    unlocked_ioctl: actuator_ioctl,
 };
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18)
@@ -336,14 +343,7 @@ void actuator_interrupt(void *private)
 
 int actuator_init(void)
 {
-    int i=0;
-
-    
-    while((pport=parport_find_number(i++))!=NULL)
-    {
-      if(pport->base==base)
-		break;
-    }
+    pport=parport_find_base(base);
     if(pport==NULL)
     {
       printk(KERN_NOTICE "%s : no port at 0x%x found\n", DRIVER_NAME, base);
@@ -390,8 +390,7 @@ int actuator_init(void)
      device_create(actuator_class,NULL,MKDEV(major,0),NULL,DRIVER_NAME);
 
     /* set up timer function */
-    init_timer(&timer);
-    timer.function=actuator_timer;
+    timer_setup(&timer,actuator_timer,TIMER_PINNED);
     
     /* set up spinlock */
     rwlock_init(&lock);
@@ -399,8 +398,7 @@ int actuator_init(void)
     stopping = 0;
     
 #ifdef TESTSIGNAL
-    init_timer(&testsignalt);
-    testsignalt.function=testsignal_timer;
+    timer_setup(&testsignalt,testsignal_timer,TIMER_PINNED);
     testsignal = 0;
     testsignalt.expires=jiffies+HZ/10;
     add_timer(&testsignalt);

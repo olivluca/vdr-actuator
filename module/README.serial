@@ -14,17 +14,7 @@ circuit) using the following connections:
     CTS     8    5    pulse counter input
 
 
-
-I'm not a kernel expert, so this module is probably bug ridden.
-I also didn't care for backwards compatibility: the module only builds under
-kernel 2.6.17 onwards .
-
-It should be possible to build the module by simply typing "make", provided
-you have the kernel source for the currently running kernel *and*
-/lib/modules/$(uname -r)/build points to the source tree (this is the case
-with Mandriva once you installed the kernel-devel or kernel-source package
-matching the currently running kernel, other distributions should do the
-same).  
+Please read the README file for information on how to build this module.
 
 Since the module uses a serial port, you have to specify which port to use
 with the "port" parameter, e.g.

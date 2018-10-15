@@ -54,6 +54,7 @@ static int scanverbosity = 2;
 class cCaDescriptor : public cListObject {
 private:
   int caSystem;
+  int caPid;
   int esPid;
   int length;
   uchar *data;
@@ -62,6 +63,7 @@ public:
   virtual ~cCaDescriptor();
   bool operator== (const cCaDescriptor &arg) const;
   int CaSystem(void) { return caSystem; }
+  int CaPid(void) { return caPid; }
   int EsPid(void) { return esPid; }
   int Length(void) const { return length; }
   const uchar *Data(void) const { return data; }
@@ -70,6 +72,7 @@ public:
 cCaDescriptor::cCaDescriptor(int CaSystem, int CaPid, int EsPid, int Length, const uchar *Data)
 {
   caSystem = CaSystem;
+  caPid = CaPid;
   esPid = EsPid;
   length = Length + 6;
   data = MALLOC(uchar, length);
@@ -100,26 +103,30 @@ private:
   int source;
   int transponder;
   int serviceId;
+  int pmtPid; // needed for OctopusNet - otherwise irrelevant!
   int numCaIds;
   int caIds[MAXCAIDS + 1];
   cList<cCaDescriptor> caDescriptors;
   void AddCaId(int CaId);
 public:
-  cCaDescriptors(int Source, int Transponder, int ServiceId);
+  cCaDescriptors(int Source, int Transponder, int ServiceId, int PmtPid);
   bool operator== (const cCaDescriptors &arg) const;
   bool Is(int Source, int Transponder, int ServiceId);
   bool Is(cCaDescriptors * CaDescriptors);
   bool Empty(void) { return caDescriptors.Count() == 0; }
   void AddCaDescriptor(SI::CaDescriptor *d, int EsPid);
   int GetCaDescriptors(const int *CaSystemIds, int BufSize, uchar *Data, int EsPid);
+  int GetCaPids(const int *CaSystemIds, int BufSize, int *Pids);
+  const int GetPmtPid(void) { return pmtPid; };
   const int *CaIds(void) { return caIds; }
   };
 
-cCaDescriptors::cCaDescriptors(int Source, int Transponder, int ServiceId)
+cCaDescriptors::cCaDescriptors(int Source, int Transponder, int ServiceId, int PmtPid)
 {
   source = Source;
   transponder = Transponder;
   serviceId = ServiceId;
+  pmtPid = PmtPid;
   numCaIds = 0;
   caIds[0] = 0;
 }
@@ -196,7 +203,7 @@ int cCaDescriptors::GetCaDescriptors(const int *CaSystemIds, int BufSize, uchar 
          if (EsPid < 0 || d->EsPid() == EsPid) {
             const int *caids = CaSystemIds;
             do {
-               if (d->CaSystem() == *caids) {
+               if (*caids == 0xFFFF || d->CaSystem() == *caids) {
                   if (length + d->Length() <= BufSize) {
                      memcpy(Data + length, d->Data(), d->Length());
                      length += d->Length();
@@ -212,6 +219,30 @@ int cCaDescriptors::GetCaDescriptors(const int *CaSystemIds, int BufSize, uchar 
   return -1;
 }
 
+int cCaDescriptors::GetCaPids(const int *CaSystemIds, int BufSize, int *Pids)
+{
+  if (!CaSystemIds || !*CaSystemIds)
+     return 0;
+  if (BufSize > 0 && Pids) {
+     int numPids = 0;
+     for (cCaDescriptor *d = caDescriptors.First(); d; d = caDescriptors.Next(d)) {
+         const int *caids = CaSystemIds;
+         do {
+            if (*caids == 0xFFFF || d->CaSystem() == *caids) {
+               if (numPids + 1 < BufSize) {
+                  Pids[numPids++] = d->CaPid();
+                  Pids[numPids] = 0;
+                  }
+               else
+                  return -1;
+               }
+            } while (*++caids);
+         }
+     return numPids;
+     }
+  return -1;
+}
+
 // --- cCaDescriptorHandler --------------------------------------------------
 
 class cCaDescriptorHandler : public cList<cCaDescriptors> {
@@ -223,6 +254,8 @@ public:
       // 1 if it is an all new descriptor with actual contents,
       // and 2 if an existing descriptor was changed.
   int GetCaDescriptors(int Source, int Transponder, int ServiceId, const int *CaSystemIds, int BufSize, uchar *Data, int EsPid);
+  int GetCaPids(int Source, int Transponder, int ServiceId, const int *CaSystemIds, int BufSize, int *Pids);
+  int GetPmtPid(int Source, int Transponder, int ServiceId);
   };
 
 int cCaDescriptorHandler::AddCaDescriptors(cCaDescriptors *CaDescriptors)
@@ -253,6 +286,26 @@ int cCaDescriptorHandler::GetCaDescriptors(int Source, int Transponder, int Serv
   return 0;
 }
 
+int cCaDescriptorHandler::GetCaPids(int Source, int Transponder, int ServiceId, const int *CaSystemIds, int BufSize, int *Pids)
+{
+  cMutexLock MutexLock(&mutex);
+  for (cCaDescriptors *ca = First(); ca; ca = Next(ca)) {
+      if (ca->Is(Source, Transponder, ServiceId))
+         return ca->GetCaPids(CaSystemIds, BufSize, Pids);
+      }
+  return 0;
+}
+
+int cCaDescriptorHandler::GetPmtPid(int Source, int Transponder, int ServiceId)
+{
+  cMutexLock MutexLock(&mutex);
+  for (cCaDescriptors *ca = First(); ca; ca = Next(ca)) {
+      if (ca->Is(Source, Transponder, ServiceId))
+         return ca->GetPmtPid();
+      }
+  return 0;
+}
+
 cCaDescriptorHandler CaDescriptorHandler;
 
 int GetCaDescriptors(int Source, int Transponder, int ServiceId, const int *CaSystemIds, int BufSize, uchar *Data, int EsPid)
@@ -260,6 +313,15 @@ int GetCaDescriptors(int Source, int Transponder, int ServiceId, const int *CaSy
   return CaDescriptorHandler.GetCaDescriptors(Source, Transponder, ServiceId, CaSystemIds, BufSize, Data, EsPid);
 }
 
+int GetCaPids(int Source, int Transponder, int ServiceId, const int *CaSystemIds, int BufSize, int *Pids)
+{
+  return CaDescriptorHandler.GetCaPids(Source, Transponder, ServiceId, CaSystemIds, BufSize, Pids);
+}
+
+int GetPmtPid(int Source, int Transponder, int ServiceId)
+{
+  return CaDescriptorHandler.GetPmtPid(Source, Transponder, ServiceId);
+}
 
 // --- cChannelScanner --------------------------------------------------------
 
@@ -324,7 +386,7 @@ skip:
   return true;
 }
 
-bool cChannelScanner::ParsePmt(const unsigned char *Data)
+bool cChannelScanner::ParsePmt(const unsigned char *Data, u_short Pid)
 {
      SI::PMT pmt(Data, false);
      if (!pmt.CheckCRCAndParse())
@@ -337,7 +399,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
       **************************************************/
      if (Channel) {
         SI::CaDescriptor *d;
-        cCaDescriptors *CaDescriptors = new cCaDescriptors(Channel->Source(), Channel->Transponder(), Channel->Sid());
+        cCaDescriptors *CaDescriptors = new cCaDescriptors(Channel->Source(), Channel->Transponder(), Channel->Sid(), Pid);
         // Scan the common loop:
         for (SI::Loop::Iterator it; (d = (SI::CaDescriptor*)pmt.commonDescriptors.getNext(it, SI::CaDescriptorTag)); ) {
             CaDescriptors->AddCaDescriptor(d, 0);
@@ -346,7 +408,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
         // Scan the stream-specific loop:
         SI::PMT::Stream stream;
         int Vpid = 0;
-        int Ppid = pmt.getPCRPid();
+        int Ppid = 0;
         int Vtype = 0;
         int Apids[MAXAPIDS + 1] = { 0 }; // these lists are zero-terminated
         int Atypes[MAXAPIDS + 1] = { 0 };
@@ -369,7 +431,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
             switch (stream.getStreamType()) {
               case 1: // STREAMTYPE_11172_VIDEO
               case 2: // STREAMTYPE_13818_VIDEO
-              case 0x1B: // MPEG4
+              case 0x1B: // H.264
                       Vpid = esPid;
                       Ppid = pmt.getPCRPid();
                       Vtype = stream.getStreamType();
@@ -473,8 +535,17 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
                          }
                       }
                       break;
+              case 0x80: // STREAMTYPE_USER_PRIVATE
+                      if (Setup.StandardCompliance == STANDARD_ANSISCTE) { // DigiCipher II VIDEO (ANSI/SCTE 57)
+                         Vpid = esPid;
+                         Ppid = pmt.getPCRPid();
+                         Vtype = 0x02; // compression based upon MPEG-2
+                         ProcessCaDescriptors = true;
+                         break;
+                         }
+                      // fall through
               case 0x81: // STREAMTYPE_USER_PRIVATE
-                      if (Channel->IsAtsc()) { // ATSC AC-3
+                      if (Setup.StandardCompliance == STANDARD_ANSISCTE) { // ATSC A/53 AUDIO (ANSI/SCTE 57)
                          char lang[MAXLANGCODE1] = { 0 };
                          SI::Descriptor *d;
                          for (SI::Loop::Iterator it; (d = stream.streamDescriptors.getNext(it)); ) {
@@ -486,8 +557,54 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
                                     break;
                                default: ;
                                }
-                             delete d;
-                             }
+                            delete d;
+                            }
+                         if (NumDpids < MAXDPIDS) {
+                            Dpids[NumDpids] = esPid;
+                            Dtypes[NumDpids] = SI::AC3DescriptorTag;
+                            strn0cpy(DLangs[NumDpids], lang, MAXLANGCODE1);
+                            NumDpids++;
+                            }
+                         ProcessCaDescriptors = true;
+                         break;
+                         }
+                      // fall through
+              case 0x82: // STREAMTYPE_USER_PRIVATE
+                      if (Setup.StandardCompliance == STANDARD_ANSISCTE) { // STANDARD SUBTITLE (ANSI/SCTE 27)
+                         //TODO
+                         break;
+                         }
+                      // fall through
+              case 0x83 ... 0xFF: // STREAMTYPE_USER_PRIVATE
+                      {
+                      char lang[MAXLANGCODE1] = { 0 };
+                      bool IsAc3 = false;
+                      SI::Descriptor *d;
+                      for (SI::Loop::Iterator it; (d = stream.streamDescriptors.getNext(it)); ) {
+                          switch (d->getDescriptorTag()) {
+                            case SI::RegistrationDescriptorTag: {
+                                 SI::RegistrationDescriptor *rd = (SI::RegistrationDescriptor *)d;
+                                 // http://www.smpte-ra.org/mpegreg/mpegreg.html
+                                 switch (rd->getFormatIdentifier()) {
+                                   case 0x41432D33: // 'AC-3'
+                                        IsAc3 = true;
+                                        break;
+                                   default:
+                                        //printf("Format identifier: 0x%08X (pid: %d)\n", rd->getFormatIdentifier(), esPid);
+                                        break;
+                                   }
+                                 }
+                                 break;
+                            case SI::ISO639LanguageDescriptorTag: {
+                                 SI::ISO639LanguageDescriptor *ld = (SI::ISO639LanguageDescriptor *)d;
+                                 strn0cpy(lang, I18nNormalizeLanguageCode(ld->languageCode), MAXLANGCODE1);
+                                 }
+                                 break;
+                            default: ;
+                            }
+                         delete d;
+                         }
+                      if (IsAc3) {
                          if (NumDpids < MAXDPIDS) {
                             Dpids[NumDpids] = esPid;
                             Dtypes[NumDpids] = SI::AC3DescriptorTag;
@@ -496,6 +613,7 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
                             }
                          ProcessCaDescriptors = true;
                          }
+                      }
                       break;
               default: ;//printf("PID: %5d %5d %2d %3d %3d\n", pmt.getServiceId(), stream.getPid(), stream.getStreamType(), pmt.getVersionNumber(), Channel->Number());
               }
@@ -520,6 +638,12 @@ bool cChannelScanner::ParsePmt(const unsigned char *Data)
   return true;
 }
 
+// Set to 'true' for debug output:
+static bool DebugSdt = false;
+
+#define dbgsdt(a...) if (DebugSdt) fprintf(stderr, a)
+
+
 bool cChannelScanner::ParseSdt(const unsigned char *Data)
 {	
   SI::SDT sdt(Data,false);
@@ -530,6 +654,14 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
   Following part copied from sdt.c
   Modified lines marked with //LO
   **************************************************/
+  cStateKey StateKey;
+  cChannels *Channels = cChannels::GetChannelsWrite(StateKey, 10);
+  if (!Channels) {
+     sectionSyncer.Repeat(); // let's not miss any section of the SDT
+     return false;
+     }
+  dbgsdt("SDT: %2d %2d %2d %s %d\n", sdt.getVersionNumber(), sdt.getSectionNumber(), sdt.getLastSectionNumber(), *cSource::ToString(transponderData->Source()), transponderData->Transponder());
+  bool ChannelsModified = false;
   SI::SDT::Service SiSdtService;
   for (SI::Loop::Iterator it; sdt.serviceLoop.getNext(SiSdtService, it); ) {
       if (SiSdtService.getRunningStatus()!=SI::RunningStatusRunning) { //LO added
@@ -537,22 +669,18 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
         continue; //LO added
       }  //LO added
       //LO in the following 3 lines changed Source() to transponderData->Source()
-      LOCK_CHANNELS_WRITE;
-      cChannel *channel = (cChannel *) Channels->GetByChannelID(tChannelID(transponderData->Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
-      if (!channel)
-          channel = Channels->GetByChannelID(tChannelID(transponderData->Source(), 0, transponderData->Transponder(), SiSdtService.getServiceId()));
+      cChannel *Channel = Channels->GetByChannelID(tChannelID(transponderData->Source(), sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId()));
+      if (!Channel)
+         Channel = Channels->GetByChannelID(tChannelID(transponderData->Source(), 0, transponderData->Transponder(), SiSdtService.getServiceId()));
+      if (Channel)
+         Channel->SetSeen();
+
       cLinkChannels *LinkChannels = NULL;
       SI::Descriptor *d;
       for (SI::Loop::Iterator it2; (d = SiSdtService.serviceDescriptors.getNext(it2)); ) {
           switch (d->getDescriptorTag()) {
             case SI::ServiceDescriptorTag: {
                  SI::ServiceDescriptor *sd = (SI::ServiceDescriptor *)d;
-                    char NameBufDeb[1024];
-                    char ShortNameBufDeb[1024];
-                 sd->serviceName.getText(NameBufDeb, ShortNameBufDeb, sizeof(NameBufDeb), sizeof(ShortNameBufDeb));
-                  //printf(" %s --  ServiceType: %X: AddServiceType %d, Sid %i, running %i\n",
-                  //NameBufDeb, sd->getServiceType(), AddServiceType, SiSdtService.getServiceId(), SiSdtService.getRunningStatus());
-                 
                  switch (sd->getServiceType()) {
                    case 0x01: // digital television service
                    case 0x02: // digital radio sound service
@@ -575,27 +703,28 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                             }
                         sd->providerName.getText(ProviderNameBuf, sizeof(ProviderNameBuf));
                         char *pp = compactspace(ProviderNameBuf);
-                        NewServiceInSdt(SiSdtService.getServiceId()); //LO added
-                        if (channel) {
+                        if (Channel) {
                            totalFound++; //LO added
                            info("OLD"); //LO added
-                           //FIXME channel->SetId(sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), channel->Rid());
+                           ChannelsModified |= Channel->SetId(Channels, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
                            //LO removed check on Setup.UpdateChannels
-                           channel->SetName(pn, ps, pp);
+                           ChannelsModified |= Channel->SetName(pn, ps, pp);
                            // Using SiSdtService.getFreeCaMode() is no good, because some
                            // tv stations set this flag even for non-encrypted channels :-(
                            // The special value 0xFFFF was supposed to mean "unknown encryption"
                            // and would have been overwritten with real CA values later:
-                           // channel->SetCa(SiSdtService.getFreeCaMode() ? 0xFFFF : 0);
+                           // Channel->SetCa(SiSdtService.getFreeCaMode() ? 0xFFFF : 0);
                            }
                         else if (*pn) {
                            totalFound++; //LO added
                            info("NEW"); //LO added
                            newFound++; //LO added
-                           channel = Channels->NewChannel(transponderData, pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
-                           //LO removed patFilter->Trigger()
+                           //dbgsdt("    %5d %5d %5d %s/%s %d %s\n", sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId(), *cSource::ToString(this->Channel()->Source()), *cSource::ToString(source), this->Channel()->Transponder(), pn);
+                           //FIXME Channel = Channels->NewChannel(this->Channel(), pn, ps, pp, sdt.getOriginalNetworkId(), sdt.getTransportStreamId(), SiSdtService.getServiceId());
+                           //FIXME Channel->SetSource(source); // in case this comes from a satellite with a slightly different position
+                           ChannelsModified = true;
+                           // patFilter->Trigger(SiSdtService.getServiceId()); //LO removed
                            }
-                        info(" channel found, sid: %d name: \"%s\" shortname: \"%s\" provider: \"%s\"\n", SiSdtService.getServiceId(), pn, ps, pp); //LO added
                         }
                    default: ;
                    }
@@ -606,9 +735,9 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
             /*
             case SI::CaIdentifierDescriptorTag: {
                  SI::CaIdentifierDescriptor *cid = (SI::CaIdentifierDescriptor *)d;
-                 if (channel) {
+                 if (Channel) {
                     for (SI::Loop::Iterator it; cid->identifiers.hasNext(it); )
-                        channel->SetCa(cid->identifiers.getNext(it));
+                        Channel->SetCa(Channels, cid->identifiers.getNext(it));
                     }
                  }
                  break;
@@ -618,19 +747,19 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
                  SI::NVODReferenceDescriptor::Service Service;
                  for (SI::Loop::Iterator it; nrd->serviceLoop.getNext(Service, it); ) {
                      totalFound++;
-                     NewServiceInSdt(Service.getServiceId());
                      //LO in the following line changed Source() to transponderData->Source()
                      cChannel *link = Channels->GetByChannelID(tChannelID(transponderData->Source(), Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId()));
-                     info("%s NVOD service found, sid: %d\n", link ? "OLD" : "NEW", Service.getServiceId()); //LO added
-                     if (!link) { //LO removed check on Setup.UpdateChannels
+                     if (!link) { //LO removed check on UpdateChannels
                         newFound++; //LO added
-                        //LO in the following line changed Source() to transponderData->Source()
-                        link = Channels->NewChannel(transponderData, "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
+                        //FIXME link = Channels->NewChannel(this->Channel(), "NVOD", "", "", Service.getOriginalNetworkId(), Service.getTransportStream(), Service.getServiceId());
+                        //FIXME patFilter->Trigger(Service.getServiceId());
+                        ChannelsModified = true;
                         }
                      if (link) {
                         if (!LinkChannels)
                            LinkChannels = new cLinkChannels;
                         LinkChannels->Add(new cLinkChannel(link));
+                        ChannelsModified = true;
                         }
                      }
                  }
@@ -640,12 +769,13 @@ bool cChannelScanner::ParseSdt(const unsigned char *Data)
           delete d;
           }
       if (LinkChannels) {
-         if (channel)
-            channel->SetLinkChannels(LinkChannels);
+         if (Channel)
+            ChannelsModified |= Channel->SetLinkChannels(LinkChannels);
          else
             delete LinkChannels;
          }
       }
+  StateKey.Remove(ChannelsModified);
  /**************************************************
   end of part copied from sdt.c
   **************************************************/
@@ -717,7 +847,7 @@ int cChannelScanner::ParseSection(cSectionBuf *s)
 
       case 0x02:
         verbose("PMT %d for service %d sect.num %d last %d\n", s->pid, table_id_ext,section_number, last_section_number);
-        section_processed=ParsePmt (s->buf);
+        section_processed=ParsePmt (s->buf, s->pid);
         break;
 
       case 0x42:

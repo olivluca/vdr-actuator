@@ -1,16 +1,24 @@
-ifneq ($(KERNELRELEASE),)
-obj-m	:= actuator.o seractuator.o
+modname := actuator
+obj-m := actuator.o seractuator.o
 
-else
-KDIR	:= /lib/modules/$(shell uname -r)/build
-PWD	:= $(shell pwd)
+KVERSION := $(shell uname -r)
+KDIR := /lib/modules/$(KVERSION)/build
+PWD := "$$(pwd)"
+MODDESTDIR := /lib/modules/$(KVERSION)/kernel/drivers/char/
 
 default:
-	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 clean:
-	-rm -f *.o *.ko *.mod.c .*.cmd .*.o.flags *~
+	$(MAKE) O=$(PWD) -C $(KDIR) M=$(PWD) clean
 
-endif
+install:
+	install -p -m 644 actuator.ko seractuator.ko $(MODDESTDIR)
+	/sbin/depmod -a ${KVERSION}
+
+uninstall:
+	rm -f $(MODDESTDIR)/actuator.ko $(MODDESTDIR)/seractuator.ko
+	/sbin/depmod -a ${KVER}
+
 
 

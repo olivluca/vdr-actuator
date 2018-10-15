@@ -45,7 +45,7 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 #include <linux/ioctl.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/device.h>
 #include <linux/version.h>
 #include <linux/tty.h>
@@ -105,10 +105,11 @@ static long do_ioctl(struct file *f, unsigned op, unsigned long param)
 	if (f->f_op->unlocked_ioctl) {
 		return f->f_op->unlocked_ioctl(f, op, param);
 	}
-#endif
+#else
 	if (f->f_op->ioctl) {
 		return f->f_op->ioctl(f->f_dentry->d_inode, f, op, param);
 	}
+#endif	
 	return -ENOSYS;
 }
 
@@ -327,7 +328,7 @@ int actuator_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static int actuator_ioctl(struct inode *node, struct file *filep,
+static long actuator_ioctl(struct file *filep,
 			  unsigned int cmd, unsigned long arg)
 {
 	int result;
@@ -385,7 +386,7 @@ static int actuator_ioctl(struct inode *node, struct file *filep,
 struct file_operations actuator_fops = {
 open:	actuator_open,
 release:actuator_release,
-ioctl:	actuator_ioctl,
+unlocked_ioctl:	actuator_ioctl,
 };
 
 /* Finally, init and cleanup */

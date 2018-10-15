@@ -45,6 +45,7 @@ class cChannelScanner:public cThread {
 private:
   cString dmx_devname;
   cChannel *transponderData;
+  cSectionSyncer sectionSyncer;
 #define MAX_RUNNING_FILTERS 10
   struct pollfd poll_fds[MAX_RUNNING_FILTERS];
   cSectionBuf* poll_section_bufs[MAX_RUNNING_FILTERS];
@@ -68,7 +69,7 @@ private:
  */
   bool ParsePat(const unsigned char *buf, int section_length,
 		      int transport_stream_id);
-  bool ParsePmt(const unsigned char *Data);
+  bool ParsePmt(const unsigned char *Data, u_short Pid);
   bool ParseSdt(const unsigned char *Data);
 
 /**

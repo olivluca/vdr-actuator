@@ -199,7 +199,7 @@ bool cSatPosition::Parse(const char *s)
 {
   bool result = false;
   char *sourcebuf = NULL;
-  if (2 == sscanf(s, "%a[^ ] %d", &sourcebuf, &position)) { 
+  if (2 == sscanf(s, "%m[^ ] %d", &sourcebuf, &position)) { 
     source = cSource::FromString(sourcebuf);
     if (Sources.Get(source)) result = true;
     else esyslog("ERROR: unknown source '%s'", sourcebuf);
@@ -593,15 +593,13 @@ public:
 void cTransponders::LoadTransponders(int source)
 {
   cList<cTransponder>::Clear();
-  int satlong = source & cSource::st_Pos;
-  if (satlong > 0x00007FFF) {
-    satlong |= 0xFFFF0000;
-    satlong = - satlong;
-  }  else {   
+  int satlong = source;
+  if (satlong < 0 ) {
     satlong = 3600 - satlong;
   }    
   char buffer[100];
   snprintf(buffer,sizeof(buffer),"transponders/%04d.ini",satlong);
+  printf("============================ %s\n",buffer);
   Load(AddDirectory(cPlugin::ConfigDirectory(),buffer));
   cTransponder *p = First();
   while(p) {
@@ -733,7 +731,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   curSource=Sources.Get(OldChannel->Source());
   curPosition=SatPositions.Get(OldChannel->Source());
   Transponders=new cTransponders();
-  Transponders->LoadTransponders(curSource->Code());
+  Transponders->LoadTransponders(curSource->Position());
   menuvalue[MI_SCANSATELLITE]=Transponders->Count();
   curtransponder=Transponders->First();
   transponderindex=1;
@@ -976,7 +974,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if(newsource) {
                         curSource=newsource;
                         curPosition=SatPositions.Get(curSource->Code());
-                        Transponders->LoadTransponders(curSource->Code());
+                        Transponders->LoadTransponders(curSource->Position());
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
                         transponderindex=1;
@@ -1027,7 +1025,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if(newsource) {
                         curSource=newsource;
                         curPosition=SatPositions.Get(curSource->Code());
-                        Transponders->LoadTransponders(curSource->Code());
+                        Transponders->LoadTransponders(curSource->Position());
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
                         transponderindex=1;
@@ -1499,7 +1497,7 @@ void cMainMenuActuator::DisplayOsd(void)
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"%d%c ", menuvalue[itemindex], Pol);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
-               snprintf(buf, sizeof(buf), tr(menucaption[itemindex]));
+               snprintf(buf, sizeof(buf), "%s", tr(menucaption[itemindex]));
                break;
              case MI_SYMBOLRATE:
                snprintf(buf, sizeof(buf),"%s %d", tr(menucaption[itemindex]), menuvalue[itemindex]);
@@ -1515,7 +1513,7 @@ void cMainMenuActuator::DisplayOsd(void)
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"%d ", menuvalue[itemindex]);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
-               snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
+               snprintf(buf, sizeof(buf), "%s", tr(menucaption[itemindex]));
                break;
              case MI_SATPOSITION:
                if (!ScanOnly) {
@@ -1535,7 +1533,7 @@ void cMainMenuActuator::DisplayOsd(void)
                curwidth-=colwidth;
                snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
-               snprintf(buf, sizeof(buf),tr(menucaption[itemindex]));
+               snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
                break;
              default:
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
