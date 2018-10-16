@@ -27,9 +27,7 @@
 #include "scanner.h"
 #include "module/actuator.h"
 
-#define DEV_DVB_FRONTEND "frontend"
-
-static const char *VERSION        = "1.2.1";
+static const char *VERSION        = "2.4.0";
 static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
 static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
@@ -130,8 +128,6 @@ unsigned int MinRefresh=250;
 int ShowChanges=1;
 //EastLimit is always 0
 
-//actuator device
-int fd_actuator;
 
 //for telling MainThreadHook it's time to show the position
 bool DishIsMoving=false;
@@ -182,6 +178,7 @@ public:
   ~cSatPosition();
   bool Parse(const char *s);
   bool Save(FILE *f);
+  virtual int Compare(const cListObject &ListObject) { return ((const cSatPosition *)&ListObject)->Position()-Position(); }
   int Source(void) const { return source; }
   int Longitude(void) const { return longitude; }
   int Position(void) const { return position; }
@@ -229,7 +226,10 @@ bool cSatPosition::SetPosition(int Position)
 class cSatPositions : public cConfig<cSatPosition> {
 public:
   cSatPosition *Get(int Longitude);
+  int Longitude(int Position);
   void Recalc(int offset);
+  bool Load(const char * Filename);
+  bool Save(void);
   };  
 
 cSatPosition *cSatPositions::Get(int Longitude)
@@ -241,10 +241,44 @@ cSatPosition *cSatPositions::Get(int Longitude)
   return NULL;
 }
 
+int cSatPositions::Longitude(int Position)
+{
+  int pos1 = 0;
+  int long1 = -1800;
+  int pos2;
+  int long2;
+  for (cSatPosition *p = First(); p; p = Next(p)) {
+    pos2=p->Position();
+    long2=p->Longitude();
+    if (pos2 == Position)
+      return long2;
+    if (Position >= pos1 && Position < pos2) 
+      return long1 + (pos2-Position) * (long2-long1) / (pos2-pos1);
+    pos1 = pos2; 
+    long1 = long2;
+  }
+  return 1800;   
+}
+
 void cSatPositions::Recalc(int offset)
 { 
   for (cSatPosition *p = First(); p; p = Next(p)) p->SetPosition(p->Position()+offset);
   Save();
+}
+
+bool cSatPositions::Load(const char * Filename)
+{
+  if (cConfig<cSatPosition>::Load(Filename)) {
+     Sort();
+     return true;
+     }
+  return false;
+}
+
+bool cSatPositions::Save(void)
+{
+  Sort();
+  return cConfig<cSatPosition>::Save();
 }
 
 cSatPositions SatPositions;
@@ -254,17 +288,19 @@ cSatPositions SatPositions;
 // It also saves/restore Setup.UpdateChannels while the dish is
 // moving to avoid picking up updates from the wrong satellite
 
+class cActuator;
+
 class cPosTracker:private cThread {
 private:
+  cActuator * m_actuator;
   int LastPositionSaved;
-  int fd_actuator;
   bool restoreupdate;
   const char *positionfilename;
   int update;
   int target;
   cMutex updatemutex;
 public:
-  cPosTracker(void);    
+  cPosTracker(cActuator *actuator);    
   ~cPosTracker(void);
   void Track(int NewTarget=-1);
   void SavePos(int newpos);
@@ -274,36 +310,68 @@ protected:
   void Action(void);
 };
 
-cPosTracker::cPosTracker(void):cThread("Position Tracker")
+//------ declaration of cActuator (since it's used by the implementation of cPosTracker
+
+class cActuator:public cPositioner {
+private:
+  cPosTracker * m_PosTracker;
+  mutable cMutex mutex;
+  bool m_Error;
+  cString m_ErrorText;
+  //actuator device
+  int fd_actuator;
+  int m_Target;
+public:
+  cActuator();
+  ~cActuator();
+  int Fd_Frontend(void) { return Frontend(); }
+  bool Opened(void) { return fd_actuator > 0; }
+  void Status(actuator_status * status) const;
+  void SetPos(int position);
+  void InternalGotoPosition(int position);
+  virtual cString Error(void) const;
+  virtual void Drive(ePositionerDirection Direction);
+  virtual void Step(ePositionerDirection Direction, uint Steps = 1);
+  virtual void Halt(void);
+  virtual void SetLimit(ePositionerDirection Direction);
+  virtual void DisableLimits(void);
+  virtual void EnableLimits(void);
+  virtual void StorePosition(uint Number);
+  virtual void RecalcPositions(uint Number);
+  virtual void GotoPosition(uint Number, int Longitude);
+  virtual void GotoAngle(int Longitude);
+  virtual int CurrentLongitude(void) const;
+  virtual bool IsMoving(void) const;
+
+};
+
+//--- cPosTracker implementation ----------------------------------------------------
+
+cPosTracker::cPosTracker(cActuator * actuator):cThread("Position Tracker")
 {
-  fd_actuator = open("/dev/actuator",0);
+  m_actuator = actuator;
   positionfilename=strdup(AddDirectory(cPlugin::ConfigDirectory(), "actuator.pos"));
   restoreupdate=true;
   update=-1;
-  if (fd_actuator) {
-    actuator_status status;
-    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-    if (status.position==0) {
+  actuator_status status;
+  m_actuator->Status(&status);
+  if (status.position==0) {
       //driver just loaded, try to get the position from the file
       FILE *f=fopen(positionfilename,"r");
       if(f) {
         int newpos;
         if (fscanf(f,"%d",&newpos)==1) { 
           isyslog("Read position %d from %s",newpos,positionfilename); 
-          CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+          m_actuator->SetPos(newpos);
           LastPositionSaved=newpos;
         } else esyslog("couldn't read dish position from %s",positionfilename);
         fclose(f);
       } else esyslog("Couldn't open file %s: %s",positionfilename,strerror(errno));
-    }  else {
+  }  else {
       //driver already loaded, trust it
       LastPositionSaved=status.position+1; //force a save
       SavePos(status.position);
-    }  
-  } else { //it should never take this branch
-    esyslog("PosTracker cannot open /dev/actuator: %s", strerror(errno));
-    exit(1);
-  } 
+  }  
 }
 
 cPosTracker::~cPosTracker(void)
@@ -316,16 +384,12 @@ cPosTracker::~cPosTracker(void)
     Setup.Save();
   }  
   updatemutex.Unlock();
-  if (fd_actuator) {
-    Cancel(3);
-    CHECK(ioctl(fd_actuator, AC_MSTOP));
-    sleep(1);
-    actuator_status status;
-    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-    SavePos(status.position);
-    close(fd_actuator);
+  m_actuator->Halt();
+  sleep(1);
+  actuator_status status;
+  m_actuator->Status(&status);
+  SavePos(status.position);
     printf("actuator: saved dish position\n");
-  }
 }
 
 void cPosTracker::SavePos(int NewPos)
@@ -350,7 +414,7 @@ void cPosTracker::Track(int NewTarget)
   Setup.UpdateChannels=0;
 
   updatemutex.Unlock();
-  if (fd_actuator) Start(); 
+  Start(); 
 }
 
 void cPosTracker::SaveUpdate(void)
@@ -372,12 +436,11 @@ void cPosTracker::RestoreUpdate(void)
 }
 
 
-
 void cPosTracker::Action(void)
 {
   actuator_status status;
   while(Running()) {
-    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    m_actuator->Status(&status);
     SavePos(status.position);
     if (status.state==ACM_IDLE) {
       updatemutex.Lock();
@@ -394,37 +457,13 @@ void cPosTracker::Action(void)
   }  
 }
 
-cPosTracker *PosTracker;
-
 // --- cActuator -------------------------------------------------------
-
-class cActuator:public cPositioner {
-private:
-  unsigned int last_state_shown;
-  int last_position_shown;
-  bool transfer;
-public:
-  cActuator();
-  virtual cString Error(void) const;
-  virtual void Drive(ePositionerDirection Direction);
-  virtual void Step(ePositionerDirection Direction, uint Steps = 1);
-  virtual void Halt(void);
-  virtual void SetLimit(ePositionerDirection Direction);
-  virtual void DisableLimits(void);
-  virtual void EnableLimits(void);
-  virtual void StorePosition(uint Number);
-  virtual void RecalcPositions(uint Number);
-  virtual void GotoPosition(uint Number, int Longitude);
-  virtual void GotoAngle(int Longitude);
-  virtual int CurrentLongitude(void) const;
-  virtual bool IsMoving(void) const;
-
-};
 
 cActuator::cActuator() : cPositioner()
 {
-  last_state_shown=ACM_IDLE;
-  transfer=false;
+  m_Target=0;
+  m_Error=false;
+  m_PosTracker=NULL;
   SetCapabilities(pcCanDrive |
                   pcCanStep |
                   pcCanHalt |
@@ -436,31 +475,72 @@ cActuator::cActuator() : cPositioner()
                   pcCanGotoPosition |
                   pcCanGotoAngle
                   );
-  esyslog("=========== POSITIONER CREATED %xl <---> %xl",this,cPositioner::GetPositioner());                
+  fd_actuator = open("/dev/actuator",0);
+  if (fd_actuator<0) {
+    esyslog("cannot open /dev/actuator");
+    return;
+  }
+  m_PosTracker=new cPosTracker(this);
 }
+
+cActuator::~cActuator()
+{
+  if (m_PosTracker) delete m_PosTracker;
+  close(fd_actuator);
+}
+
+void cActuator::Status(actuator_status * status) const
+{
+  cMutexLock MutexLock(&mutex);
+  CHECK(ioctl(fd_actuator, AC_RSTATUS, status));
+}
+
+void cActuator::SetPos(int position)
+{
+  cMutexLock MutexLock(&mutex);
+  int newpos=position;
+  CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
+  m_PosTracker->Track();
+}
+
+
+void cActuator::InternalGotoPosition(int position)
+{
+  cMutexLock MutexLock(&mutex);
+  int newpos=position;
+  CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
+  m_PosTracker->Track();
+}
+
 
 cString cActuator::Error(void) const
 {
-  return NULL; //FIXME
+  cMutexLock MutexLock(&mutex);
+  if (m_Error)
+    return m_ErrorText;
+  return NULL;
 }
 
 void cActuator::Drive(ePositionerDirection Direction)
 {
+  cMutexLock MutexLock(&mutex);
   if (Direction==cPositioner::pdRight)
   {
     CHECK(ioctl(fd_actuator, AC_MWEST));
   } else {
     CHECK(ioctl(fd_actuator, AC_MEAST));
   }  
-  PosTracker->Track();    
+  m_PosTracker->Track();    
 }
 
 void cActuator::Step(ePositionerDirection Direction, uint Steps)
 {
+  cMutexLock MutexLock(&mutex);
+
   actuator_status status;
   int newpos;
   
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+  Status(&status);
   if (Direction==cPositioner::pdRight)
   {
     newpos=status.position+Steps;
@@ -468,11 +548,12 @@ void cActuator::Step(ePositionerDirection Direction, uint Steps)
     newpos=status.position-Steps;
   }  
   CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
-  PosTracker->Track();    
+  m_PosTracker->Track();    
 }
 
 void cActuator::Halt(void)
 {
+  cMutexLock MutexLock(&mutex);
   CHECK(ioctl(fd_actuator, AC_MSTOP));
 }
 
@@ -504,109 +585,59 @@ void cActuator::RecalcPositions(uint Number)
 void cActuator::GotoPosition(uint Number, int Longitude)
 {
   //FIXME
-  cPositioner::GotoPosition(Number, Longitude);
 }
 
 void cActuator::GotoAngle(int Longitude)
 {
-  
-  esyslog("actuator GotoAngle %d", Longitude);
-  
+  cMutexLock MutexLock(&mutex);
   actuator_status status;
   cSatPosition *p=SatPositions.Get(Longitude);
+  
   int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
+  m_Target=Longitude;
   if (p) {
     target=p->Position();
     //dsyslog("New sat position: %i",target);
     if (target>=0 && target<=WestLimit) {
-      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+      Status(&status);
       if (status.position!=target || status.target!=target)  {
         //dsyslog("Satellite changed");
-        CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
+        InternalGotoPosition(target);
+      } else {  
+        m_PosTracker->Track(target);
       }  
-      PosTracker->Track(target);
+      m_Error=false;
     } else {
       Skins.Message(mtError, tr(outsidelimits));
+      m_Error=true;
+      m_ErrorText=tr(outsidelimits);
       target=-1;
     }  
-  } else Skins.Message(mtError, tr(dishnopos));
-  if (target==-1) { 
-    CHECK(ioctl(fd_actuator,AC_MSTOP));
-    PosTracker->Track(target);
-  }  
-  cPositioner::GotoAngle(Longitude);
-  
+  } else {
+     Skins.Message(mtError, tr(dishnopos));
+     m_Error=true;
+     m_ErrorText=tr(dishnopos);
+  }   
+  if (target==-1) Halt();
 }
 
 int cActuator::CurrentLongitude(void) const
 {
-  return cPositioner::CurrentLongitude(); //FIXME
+  cMutexLock MutexLock(&mutex);
+  actuator_status status;
+  Status(&status);
+  return SatPositions.Longitude(status.position); 
 }
 
 bool cActuator::IsMoving(void) const
 {
+  cMutexLock MutexLock(&mutex);
   actuator_status status;
-  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-  return status.state != ACM_IDLE; //FIXME
+  Status(&status);
+  return status.state != ACM_IDLE || status.position != m_Target;
 }
 
-/*
-void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber, bool LiveView)
-{
-  actuator_status status;
-  if (ChannelNumber) {
-    //
-    //vdr will call ChannelSwitch for the primary device even if it isn't
-    //tuning the new channel (in transfer mode, the channel will be tuned by
-    //another card, which will also call this method).  So:
-    // - if the device is not the primary device it has really tuned to the
-    //   channel
-    // - if the primary device is also the actual device, it also
-    //   tuned to the channel
-    // - now the difficult part: HasProgramme() is true when the primary
-    //   device is in transfer mode and it is switched. Unfortunately is also
-    //   true when the card first enter transfer mode, so the "transfer" 
-    //   variable is used to remember that the device is already in transfer 
-    //   mode (i.e. we ignore the first call when it is entering transfer mode)
-    //
-    esyslog("actuator: switch to channel %d",ChannelNumber);
-    if ((Device!=cDevice::PrimaryDevice()) || 
-        (cDevice::ActualDevice()==cDevice::PrimaryDevice()) || 
-        (cDevice::PrimaryDevice()->HasProgramme()) && transfer) {
-      if (DvbKarte==Device->CardIndex()) {
-        LOCK_CHANNELS_READ; 
-        cChannel channel = *Channels->GetByNumber(ChannelNumber);
-        //dsyslog("Checking satellite");
-        cSatPosition *p=SatPositions.Get(channel.Source());
-        int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
-        if (p) {
-          target=p->Position();
-          //dsyslog("New sat position: %i",target);
-          if (target>=0 && target<=WestLimit) {
-            CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
-            if (status.position!=target || status.target!=target)  {
-              //dsyslog("Satellite changed");
-              CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
-            }  
-            PosTracker->Track(target);
-          } else {
-            Skins.Message(mtError, tr(outsidelimits));
-            target=-1;
-          }  
-        } else Skins.Message(mtError, tr(dishnopos));
-        if (target==-1) { 
-          CHECK(ioctl(fd_actuator,AC_MSTOP));
-          PosTracker->Track(target);
-        }  
-      }  
-    }
-    //here we remember if the primary device is already in transfer mode
-    if (Device==cDevice::PrimaryDevice())
-      transfer=cDevice::ActualDevice()!=cDevice::PrimaryDevice();
-  }
-}
-
-*/
+cActuator * Actuator = NULL;
 
 // --- cMenuSetupActuator ------------------------------------------------------
 
@@ -762,7 +793,7 @@ void cTransponders::LoadTransponders(int source)
 
 class cMainMenuActuator : public cOsdObject {
 private:
-  cDevice *ActuatorDevice;
+  cDvbDevice *ActuatorDevice;
   int digits,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
   enum em {
     EM_NONE,
@@ -845,9 +876,11 @@ public:
 cMainMenuActuator::cMainMenuActuator(void)
 {
   ActuatorDevice=NULL;
-  for (int i=0; i<cDevice::NumDevices() && ActuatorDevice==NULL; i++)
-    if (cDevice::GetDevice(i)->CardIndex()==DvbKarte) 
-      ActuatorDevice=cDevice::GetDevice(i);
+  for (int i=0; i<cDevice::NumDevices() && ActuatorDevice==NULL; i++) {
+    cDvbDevice * LocDvbDevice=dynamic_cast<cDvbDevice *>(cDevice::GetDevice(i));
+    if (LocDvbDevice != nullptr)
+      ActuatorDevice=LocDvbDevice;
+  }   
   if (ActuatorDevice==NULL) return;
   LOCK_CHANNELS_READ;
   OldChannel=(cChannel *)Channels->GetByNumber(ActuatorDevice->CurrentChannel());
@@ -866,10 +899,8 @@ cMainMenuActuator::cMainMenuActuator(void)
   LimitsDisabled=false;
   HideOsd=false;
   //if we're not going to interact with the actuator, don't save the value of UpdateChannels
-  if (!ScanOnly && !PositionDisplay) PosTracker->SaveUpdate();
-  static char buffer[PATH_MAX];
-  snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
-  fd_frontend = open(buffer,O_RDONLY);
+  // FIXME if (!ScanOnly && !PositionDisplay) PosTracker->SaveUpdate();
+  fd_frontend = Actuator->Fd_Frontend();
   curSource=Sources.Get(OldChannel->Source());
   curPosition=SatPositions.Get(curSource->Position());
   Transponders=new cTransponders();
@@ -939,16 +970,17 @@ cMainMenuActuator::~cMainMenuActuator()
   delete scantime;
   delete lockstable;
   delete refresh;
-  close(fd_frontend);
   //Don't change channel if we're only showing the position
   if (PositionDisplay) {
     PositionDisplay=false;
     return;
   }  
+  /* FIXME
   if (!ScanOnly) {
-    CHECK(ioctl(fd_actuator, AC_MSTOP));
+    Actuator->Halt();
     PosTracker->RestoreUpdate();
   }  
+  */
   if (OldChannel) {
     if (HasSwitched) {
       if (cDevice::GetDevice(OldChannel,0,true)==ActuatorDevice) {
@@ -968,7 +1000,6 @@ void cMainMenuActuator::Refresh(void)
         GetSignalInfo();
         DisplayOsd();
    }     
-
 }
 
 eOSState cMainMenuActuator::ProcessKey(eKeys Key)
@@ -982,10 +1013,10 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   int newpos;
   eOSState state = osContinue;
   if (!ScanOnly) {
-    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    Actuator->Status(&status);
     if ((status.position<=0 && status.state==ACM_EAST || 
          status.position>=WestLimit && status.state==ACM_WEST) && !LimitsDisabled) {
-      CHECK(ioctl(fd_actuator, AC_MSTOP));
+      Actuator->Halt();
       errormessage=EM_ATLIMITS;
     }
   }  
@@ -1235,38 +1266,28 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
              switch(selected) {
                 case MI_DRIVEEAST:
                    if (status.position<=0 && !LimitsDisabled) errormessage=EM_ATLIMITS;
-                   else {   
-                     CHECK(ioctl(fd_actuator, AC_MEAST));
-                     PosTracker->Track();
-                     //needsFastResponse=true;
-                   }  
+                   else Actuator->Drive(cPositioner::pdLeft);   
                    break;
                 case MI_HALT:   
-                   CHECK(ioctl(fd_actuator, AC_MSTOP));
+                   Actuator->Halt();
                    break;
                 case MI_DRIVEWEST:   
                    if (status.position>=WestLimit && !LimitsDisabled) errormessage=EM_ATLIMITS;
-                   else {   
-                     CHECK(ioctl(fd_actuator, AC_MWEST));
-                     PosTracker->Track();
-                     //needsFastResponse=true;
-                   }  
+                   else Actuator->Drive(cPositioner::pdRight);  
                    break;
                 case MI_RECALC:
                    if (curPosition) {
                      if (conf==0) conf=1;
                      else {
-                       newpos=curPosition->Position();
-                       CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
-                       PosTracker->Track();
+                       Actuator->SetPos(curPosition->Position());
                        conf=0;
                      }  
                    }
                    break;
                 case MI_GOTO:
                    if (LimitsDisabled || (menuvalue[MI_GOTO]>=0 && menuvalue[MI_GOTO]<=WestLimit)) {
-                     CHECK(ioctl(fd_actuator, AC_WTARGET, &menuvalue[MI_GOTO]));
-                     PosTracker->Track();
+                     Actuator->InternalGotoPosition(menuvalue[MI_GOTO]);
+                     // FIXME PosTracker->Track();
                      //needsFastResponse=true;
                    } else errormessage=EM_OUTSIDELIMITS;
                    break;
@@ -1283,14 +1304,12 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    }
                    break;
                 case MI_STEPSEAST:
+                   Actuator->Step(cPositioner::pdLeft,menuvalue[MI_STEPSEAST]);
+                   //FIXME PosTracker->Track()
+                   break;
                 case MI_STEPSWEST:
-                   {
-                     if (selected==MI_STEPSEAST) newpos=status.position-menuvalue[MI_STEPSEAST];
-                       else newpos=status.position+menuvalue[MI_STEPSWEST];
-                     CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
-                     PosTracker->Track();
-                     //needsFastResponse=true;
-                   }    
+                   Actuator->Step(cPositioner::pdRight,menuvalue[MI_STEPSWEST]); 
+                   //FIXME PosTracker->Track();
                    break;
                 case MI_ENABLEDISABLELIMITS:
                    LimitsDisabled=!LimitsDisabled;
@@ -1301,18 +1320,16 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      WestLimit-=status.position;
                      theplugin->SetupStore("WestLimit",WestLimit);
                      SatPositions.Recalc(-status.position);
-                     newpos=0;
-                     CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
-                     PosTracker->Track();
+                     Actuator->SetPos(0);
+                     //FIXME PosTracker->Track();
                      conf=0;
                    }  
                    break;
                 case MI_SETZERO:
                    if (conf==0) conf=1;
                    else {
-                     newpos=0;
-                     CHECK(ioctl(fd_actuator, AC_WPOS, &newpos));
-                     PosTracker->Track();
+                     Actuator->SetPos(0);
+                     //FIXME PosTracker->Track();
                      conf=0;
                    }  
                    break;
@@ -1397,9 +1414,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (curPosition) {
                      newpos=curPosition->Position();
                      if (LimitsDisabled || (newpos>=0 && newpos<=WestLimit)) {
-                       CHECK(ioctl(fd_actuator,AC_WTARGET,&newpos));
-                       PosTracker->Track();
-                       //needsFastResponse=true;
+                       Actuator->InternalGotoPosition(newpos);
+                       //FIXME PosTracker->Track();
                      } else errormessage=EM_OUTSIDELIMITS; 
                    } 
                    break;
@@ -1430,7 +1446,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
              break;
     case kOk|k_Release:
                 if ((repeat) && ((selected==MI_DRIVEEAST) || (selected==MI_DRIVEWEST)))
-                  CHECK(ioctl(fd_actuator, AC_MSTOP));
+                  Actuator->Halt();
                 repeat=false;
                 break;
     case kOk|k_Repeat: 
@@ -1522,7 +1538,7 @@ void cMainMenuActuator::DisplayOsd(void)
            text=clrHeaderText;
          } else { 
            actuator_status status;
-           CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+           Actuator->Status(&status);
            switch(status.state) {
              case ACM_STOPPED:
              case ACM_CHANGE:
@@ -1726,6 +1742,15 @@ void cMainMenuActuator::DisplayOsd(void)
 
 void cMainMenuActuator::GetSignalInfo(void)
 {
+      if (fd_frontend<=0)
+      {
+        fe_status=(fe_status_t)0;
+        fe_ber=0;
+        fe_ss=0;
+        fe_snr=0;
+        fe_unc=0;
+        return;
+      }  
       fe_status = fe_status_t(0);
       usleep(15);
       CHECK(ioctl(fd_frontend, FE_READ_STATUS, &fe_status));
@@ -1856,7 +1881,6 @@ void cMainMenuActuator::DeleteMarkedChannels(void)
 class cPluginActuator : public cPlugin {
 private:
   // Add any member variables or functions you may need here.
-  cActuator *Actuator;
 public:
   cPluginActuator(void);
   virtual ~cPluginActuator();
@@ -1883,7 +1907,6 @@ cPluginActuator::cPluginActuator(void)
   // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
   // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
   Actuator = NULL;
-  PosTracker = NULL;
   cThemes::Save("actuator", &Theme);
 }
 
@@ -1895,9 +1918,7 @@ cPluginActuator::~cPluginActuator()
 void cPluginActuator::Stop(void)
 {
   if (!ScanOnly) {
-    delete Actuator;
-    delete PosTracker;
-    close(fd_actuator);
+    if (Actuator) delete Actuator;
   }  
 }
 
@@ -1945,12 +1966,9 @@ bool cPluginActuator::Initialize(void)
 {
   // Initialize any background activities the plugin shall perform.
   if (!ScanOnly) {
-    fd_actuator = open("/dev/actuator",0);
-    if (fd_actuator<0) {
-      esyslog("cannot open /dev/actuator");
+    Actuator = new cActuator;
+    if (!Actuator->Opened())
       return false;
-    }
-    PosTracker=new cPosTracker();
   }  
   return true;
 }
@@ -1959,10 +1977,6 @@ bool cPluginActuator::Start(void)
 {
   // Start any background activities the plugin shall perform.
   SatPositions.Load(AddDirectory(ConfigDirectory(), "actuator.conf"));
-  if (!ScanOnly) {
-    esyslog("*********** CREATING POSITIONER");
-    Actuator = new cActuator;
-  }  
   return true;
 }
 
@@ -2024,7 +2038,7 @@ cString cPluginActuator::SVDRPCommand(const char *Command, const char *Option, i
      "CHANGE",
      "ERROR"
     }; 
-    CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+    Actuator->Status(&status);
     snprintf(buf,sizeof(buf),"%d, %d, %d (%s)",status.target, status.position, status.state, (status.state >= ACM_IDLE && status.state <= ACM_ERROR) ? states[status.state] : "UNKWNOW"); 
     return buf;
   }
