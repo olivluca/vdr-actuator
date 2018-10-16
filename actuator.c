@@ -18,6 +18,7 @@
 #include <vdr/device.h>
 #include <vdr/channels.h>
 #include <vdr/status.h>
+#include <vdr/positioner.h>
 #include <vdr/interface.h>
 #include <vdr/osd.h>
 #include <vdr/pat.h>
@@ -173,6 +174,7 @@ THEME_CLR(Theme, ProgressText, clrWhite);
 class cSatPosition:public cListObject {
 private:
   int source;
+  int longitude;
   int position;
 public:
   cSatPosition(void) {}  
@@ -181,6 +183,7 @@ public:
   bool Parse(const char *s);
   bool Save(FILE *f);
   int Source(void) const { return source; }
+  int Longitude(void) const { return longitude; }
   int Position(void) const { return position; }
   bool SetPosition(int Position);
   };
@@ -201,6 +204,7 @@ bool cSatPosition::Parse(const char *s)
   char *sourcebuf = NULL;
   if (2 == sscanf(s, "%m[^ ] %d", &sourcebuf, &position)) { 
     source = cSource::FromString(sourcebuf);
+    longitude = cSource::Position(source);
     if (Sources.Get(source)) result = true;
     else esyslog("ERROR: unknown source '%s'", sourcebuf);
     }
@@ -224,14 +228,14 @@ bool cSatPosition::SetPosition(int Position)
 
 class cSatPositions : public cConfig<cSatPosition> {
 public:
-  cSatPosition *Get(int Source);
+  cSatPosition *Get(int Longitude);
   void Recalc(int offset);
   };  
 
-cSatPosition *cSatPositions::Get(int Source)
+cSatPosition *cSatPositions::Get(int Longitude)
 {
   for (cSatPosition *p = First(); p; p = Next(p)) {
-    if (p->Source() == Source)
+    if (p->Longitude() == Longitude)
       return p;
     }
   return NULL;
@@ -392,25 +396,161 @@ void cPosTracker::Action(void)
 
 cPosTracker *PosTracker;
 
-// --- cStatusMonitor -------------------------------------------------------
+// --- cActuator -------------------------------------------------------
 
-class cStatusMonitor:public cStatus {
+class cActuator:public cPositioner {
 private:
   unsigned int last_state_shown;
   int last_position_shown;
   bool transfer;
-protected:
-  virtual void ChannelSwitch(const cDevice *Device, int ChannelNumber, bool LiveView);
 public:
-  cStatusMonitor();
+  cActuator();
+  virtual cString Error(void) const;
+  virtual void Drive(ePositionerDirection Direction);
+  virtual void Step(ePositionerDirection Direction, uint Steps = 1);
+  virtual void Halt(void);
+  virtual void SetLimit(ePositionerDirection Direction);
+  virtual void DisableLimits(void);
+  virtual void EnableLimits(void);
+  virtual void StorePosition(uint Number);
+  virtual void RecalcPositions(uint Number);
+  virtual void GotoPosition(uint Number, int Longitude);
+  virtual void GotoAngle(int Longitude);
+  virtual int CurrentLongitude(void) const;
+  virtual bool IsMoving(void) const;
+
 };
 
-cStatusMonitor::cStatusMonitor()
+cActuator::cActuator() : cPositioner()
 {
   last_state_shown=ACM_IDLE;
   transfer=false;
+  SetCapabilities(pcCanDrive |
+                  pcCanStep |
+                  pcCanHalt |
+                  pcCanSetLimits |
+                  pcCanDisableLimits |
+                  pcCanEnableLimits |
+                  pcCanStorePosition |
+                  pcCanRecalcPositions |
+                  pcCanGotoPosition |
+                  pcCanGotoAngle
+                  );
+  esyslog("=========== POSITIONER CREATED %xl <---> %xl",this,cPositioner::GetPositioner());                
 }
 
+cString cActuator::Error(void) const
+{
+  return NULL; //FIXME
+}
+
+void cActuator::Drive(ePositionerDirection Direction)
+{
+  if (Direction==cPositioner::pdRight)
+  {
+    CHECK(ioctl(fd_actuator, AC_MWEST));
+  } else {
+    CHECK(ioctl(fd_actuator, AC_MEAST));
+  }  
+  PosTracker->Track();    
+}
+
+void cActuator::Step(ePositionerDirection Direction, uint Steps)
+{
+  actuator_status status;
+  int newpos;
+  
+  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+  if (Direction==cPositioner::pdRight)
+  {
+    newpos=status.position+Steps;
+  } else {
+    newpos=status.position-Steps;
+  }  
+  CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
+  PosTracker->Track();    
+}
+
+void cActuator::Halt(void)
+{
+  CHECK(ioctl(fd_actuator, AC_MSTOP));
+}
+
+void cActuator::SetLimit(ePositionerDirection Direction)
+{
+ //FIXME
+}
+
+void cActuator::DisableLimits(void)
+{
+  //FIXME
+}
+
+void cActuator::EnableLimits(void)
+{
+  //FIXME
+}
+
+void cActuator::StorePosition(uint Number)
+{
+  //FIXME
+}
+
+void cActuator::RecalcPositions(uint Number)
+{
+  //FIXME
+}
+
+void cActuator::GotoPosition(uint Number, int Longitude)
+{
+  //FIXME
+  cPositioner::GotoPosition(Number, Longitude);
+}
+
+void cActuator::GotoAngle(int Longitude)
+{
+  
+  esyslog("actuator GotoAngle %d", Longitude);
+  
+  actuator_status status;
+  cSatPosition *p=SatPositions.Get(Longitude);
+  int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
+  if (p) {
+    target=p->Position();
+    //dsyslog("New sat position: %i",target);
+    if (target>=0 && target<=WestLimit) {
+      CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+      if (status.position!=target || status.target!=target)  {
+        //dsyslog("Satellite changed");
+        CHECK(ioctl(fd_actuator, AC_WTARGET, &target));
+      }  
+      PosTracker->Track(target);
+    } else {
+      Skins.Message(mtError, tr(outsidelimits));
+      target=-1;
+    }  
+  } else Skins.Message(mtError, tr(dishnopos));
+  if (target==-1) { 
+    CHECK(ioctl(fd_actuator,AC_MSTOP));
+    PosTracker->Track(target);
+  }  
+  cPositioner::GotoAngle(Longitude);
+  
+}
+
+int cActuator::CurrentLongitude(void) const
+{
+  return cPositioner::CurrentLongitude(); //FIXME
+}
+
+bool cActuator::IsMoving(void) const
+{
+  actuator_status status;
+  CHECK(ioctl(fd_actuator, AC_RSTATUS, &status));
+  return status.state != ACM_IDLE; //FIXME
+}
+
+/*
 void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber, bool LiveView)
 {
   actuator_status status;
@@ -465,6 +605,8 @@ void cStatusMonitor::ChannelSwitch(const cDevice *Device, int ChannelNumber, boo
       transfer=cDevice::ActualDevice()!=cDevice::PrimaryDevice();
   }
 }
+
+*/
 
 // --- cMenuSetupActuator ------------------------------------------------------
 
@@ -729,7 +871,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   snprintf(buffer, sizeof(buffer), "%s%d/%s%d", "/dev/dvb/adapter",DvbKarte,"frontend",0);
   fd_frontend = open(buffer,O_RDONLY);
   curSource=Sources.Get(OldChannel->Source());
-  curPosition=SatPositions.Get(OldChannel->Source());
+  curPosition=SatPositions.Get(curSource->Position());
   Transponders=new cTransponders();
   Transponders->LoadTransponders(curSource->Position());
   menuvalue[MI_SCANSATELLITE]=Transponders->Count();
@@ -973,7 +1115,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       while(newsource && (newsource->Code() & cSource::st_Mask) != cSource::stSat) newsource=(cSource *)newsource->Prev(); 
                       if(newsource) {
                         curSource=newsource;
-                        curPosition=SatPositions.Get(curSource->Code());
+                        curPosition=SatPositions.Get(curSource->Position());
                         Transponders->LoadTransponders(curSource->Position());
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
@@ -1024,7 +1166,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       while(newsource && (newsource->Code() & cSource::st_Mask) != cSource::stSat) newsource=(cSource *)newsource->Next(); 
                       if(newsource) {
                         curSource=newsource;
-                        curPosition=SatPositions.Get(curSource->Code());
+                        curPosition=SatPositions.Get(curSource->Position());
                         Transponders->LoadTransponders(curSource->Position());
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
@@ -1714,7 +1856,7 @@ void cMainMenuActuator::DeleteMarkedChannels(void)
 class cPluginActuator : public cPlugin {
 private:
   // Add any member variables or functions you may need here.
-  cStatusMonitor *statusMonitor;
+  cActuator *Actuator;
 public:
   cPluginActuator(void);
   virtual ~cPluginActuator();
@@ -1740,7 +1882,7 @@ cPluginActuator::cPluginActuator(void)
   // Initialize any member variables here.
   // DON'T DO ANYTHING ELSE THAT MAY HAVE SIDE EFFECTS, REQUIRE GLOBAL
   // VDR OBJECTS TO EXIST OR PRODUCE ANY OUTPUT!
-  statusMonitor = NULL;
+  Actuator = NULL;
   PosTracker = NULL;
   cThemes::Save("actuator", &Theme);
 }
@@ -1753,7 +1895,7 @@ cPluginActuator::~cPluginActuator()
 void cPluginActuator::Stop(void)
 {
   if (!ScanOnly) {
-    delete statusMonitor;
+    delete Actuator;
     delete PosTracker;
     close(fd_actuator);
   }  
@@ -1817,8 +1959,10 @@ bool cPluginActuator::Start(void)
 {
   // Start any background activities the plugin shall perform.
   SatPositions.Load(AddDirectory(ConfigDirectory(), "actuator.conf"));
-  if (!ScanOnly)
-    statusMonitor = new cStatusMonitor;
+  if (!ScanOnly) {
+    esyslog("*********** CREATING POSITIONER");
+    Actuator = new cActuator;
+  }  
   return true;
 }
 
