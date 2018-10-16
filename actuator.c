@@ -121,7 +121,6 @@ static const int menudigits[] = {
 #define POSTOLERANCE 5
 
 //Plugin parameters 
-int DvbKarte=0;
 int WestLimit=0;
 bool ScanOnly=false; //use the plugin only as channel scanner, not as a positioner
 unsigned int MinRefresh=250;
@@ -178,7 +177,7 @@ public:
   ~cSatPosition();
   bool Parse(const char *s);
   bool Save(FILE *f);
-  virtual int Compare(const cListObject &ListObject) { return ((const cSatPosition *)&ListObject)->Position()-Position(); }
+  virtual int Compare(const cListObject &ListObject) const { return Position()-((const cSatPosition *)&ListObject)->Position(); }
   int Source(void) const { return source; }
   int Longitude(void) const { return longitude; }
   int Position(void) const { return position; }
@@ -252,8 +251,10 @@ int cSatPositions::Longitude(int Position)
     long2=p->Longitude();
     if (pos2 == Position)
       return long2;
-    if (Position >= pos1 && Position < pos2) 
-      return long1 + (pos2-Position) * (long2-long1) / (pos2-pos1);
+    if (Position >= pos1 && Position < pos2) {
+      int retvalue=long1 + (pos2-Position) * (long2-long1) / (pos2-pos1);
+      return retvalue;
+    }  
     pos1 = pos2; 
     long1 = long2;
   }
@@ -285,8 +286,6 @@ cSatPositions SatPositions;
 
 //--- cPosTracker -----------------------------------------------------------
 // Follows the dish when it's moving to store the position on disk
-// It also saves/restore Setup.UpdateChannels while the dish is
-// moving to avoid picking up updates from the wrong satellite
 
 class cActuator;
 
@@ -294,18 +293,12 @@ class cPosTracker:private cThread {
 private:
   cActuator * m_actuator;
   int LastPositionSaved;
-  bool restoreupdate;
   const char *positionfilename;
-  int update;
-  int target;
-  cMutex updatemutex;
 public:
   cPosTracker(cActuator *actuator);    
   ~cPosTracker(void);
-  void Track(int NewTarget=-1);
   void SavePos(int newpos);
-  void SaveUpdate(void);
-  void RestoreUpdate(void);
+  void Track(void) { Start(); }
 protected:
   void Action(void);
 };
@@ -329,6 +322,7 @@ public:
   void Status(actuator_status * status) const;
   void SetPos(int position);
   void InternalGotoPosition(int position);
+  void RestoreTarget(void);
   virtual cString Error(void) const;
   virtual void Drive(ePositionerDirection Direction);
   virtual void Step(ePositionerDirection Direction, uint Steps = 1);
@@ -351,8 +345,6 @@ cPosTracker::cPosTracker(cActuator * actuator):cThread("Position Tracker")
 {
   m_actuator = actuator;
   positionfilename=strdup(AddDirectory(cPlugin::ConfigDirectory(), "actuator.pos"));
-  restoreupdate=true;
-  update=-1;
   actuator_status status;
   m_actuator->Status(&status);
   if (status.position==0) {
@@ -376,14 +368,6 @@ cPosTracker::cPosTracker(cActuator * actuator):cThread("Position Tracker")
 
 cPosTracker::~cPosTracker(void)
 {
-  updatemutex.Lock();
-  target=-1;
-  restoreupdate=false;
-  if (update>=0) { 
-    Setup.UpdateChannels=update;  
-    Setup.Save();
-  }  
-  updatemutex.Unlock();
   m_actuator->Halt();
   sleep(1);
   actuator_status status;
@@ -404,38 +388,6 @@ void cPosTracker::SavePos(int NewPos)
   }    
 }
 
-void cPosTracker::Track(int NewTarget)
-{
-  updatemutex.Lock();
-  if (restoreupdate) { 
-    target=NewTarget;
-    if (update==-1) update=Setup.UpdateChannels;
-  }  
-  Setup.UpdateChannels=0;
-
-  updatemutex.Unlock();
-  Start(); 
-}
-
-void cPosTracker::SaveUpdate(void)
-{
-  updatemutex.Lock();
-  restoreupdate=false;
-  if (update==-1) update=Setup.UpdateChannels;
-  Setup.UpdateChannels=0;
-  target=-1;
-  updatemutex.Unlock();
-}
-
-void cPosTracker::RestoreUpdate(void)
-{
-  //actually the restore will be made in Action() after Track() has set a new target
-  updatemutex.Lock();
-  restoreupdate=true;
-  updatemutex.Unlock();
-}
-
-
 void cPosTracker::Action(void)
 {
   actuator_status status;
@@ -443,13 +395,6 @@ void cPosTracker::Action(void)
     m_actuator->Status(&status);
     SavePos(status.position);
     if (status.state==ACM_IDLE) {
-      updatemutex.Lock();
-      if (update!=-1 and target!=-1 and abs(status.position-target)<POSTOLERANCE) {
-        Setup.UpdateChannels=update;
-        update=-1;
-        target=-1;
-      }
-      updatemutex.Unlock();
       DishIsMoving=false;
       return;
     } else if (status.state==ACM_WEST || status.state==ACM_EAST) DishIsMoving=true;  
@@ -510,6 +455,12 @@ void cActuator::InternalGotoPosition(int position)
   int newpos=position;
   CHECK(ioctl(fd_actuator, AC_WTARGET, &newpos));
   m_PosTracker->Track();
+}
+
+void cActuator::RestoreTarget(void)
+{
+  cMutexLock MutexLock(&mutex);
+  GotoAngle(m_Target);
 }
 
 
@@ -592,8 +543,8 @@ void cActuator::GotoAngle(int Longitude)
   cMutexLock MutexLock(&mutex);
   actuator_status status;
   cSatPosition *p=SatPositions.Get(Longitude);
-  
-  int target=-1;  //in case there's no target stop the motor and force Setup.UpdateChannels to 0
+  cPositioner::GotoAngle(Longitude); //to update the target shown in skins...the positioner interface isn't well thought out
+  int target=-1;  //in case there's no target stop the motor
   m_Target=Longitude;
   if (p) {
     target=p->Position();
@@ -604,7 +555,7 @@ void cActuator::GotoAngle(int Longitude)
         //dsyslog("Satellite changed");
         InternalGotoPosition(target);
       } else {  
-        m_PosTracker->Track(target);
+        m_PosTracker->Track();
       }  
       m_Error=false;
     } else {
@@ -634,7 +585,9 @@ bool cActuator::IsMoving(void) const
   cMutexLock MutexLock(&mutex);
   actuator_status status;
   Status(&status);
-  return status.state != ACM_IDLE || status.position != m_Target;
+  if (status.state != ACM_IDLE)
+    return true;
+  return SatPositions.Longitude(status.position) != m_Target;
 }
 
 cActuator * Actuator = NULL;
@@ -643,7 +596,6 @@ cActuator * Actuator = NULL;
 
 class cMenuSetupActuator : public cMenuSetupPage {
 private:
-  int newDvbKarte;
   int newMinRefresh;
   int newShowChanges;
   cThemes themes;
@@ -656,12 +608,10 @@ public:
 
 cMenuSetupActuator::cMenuSetupActuator(void)
 {
-  newDvbKarte=DvbKarte+1;
   newMinRefresh=MinRefresh;
   newShowChanges=ShowChanges;
   themes.Load("actuator");
   themeIndex=themes.GetThemeIndex(Theme.Description());
-  Add(new cMenuEditIntItem( tr("Card connected with motor"), &newDvbKarte,1,cDevice::NumDevices()));
   Add(new cMenuEditIntItem( tr("Min. screen refresh time (ms)"), &newMinRefresh,10,1000));
   Add(new cMenuEditBoolItem( tr("Show dish moving"), &newShowChanges));
   if (themes.NumThemes())
@@ -670,7 +620,6 @@ cMenuSetupActuator::cMenuSetupActuator(void)
 
 void cMenuSetupActuator::Store(void)
 {
-  SetupStore("DVB-Karte", DvbKarte=newDvbKarte-1);
   SetupStore("MinRefresh", MinRefresh=newMinRefresh);
   SetupStore("ShowChanges", ShowChanges=newShowChanges);
   SetupStore("Theme", themes.Name(themeIndex));
@@ -864,6 +813,7 @@ private:
   tColor clrMessageBg;
   tColor clrProgressBar;
   tColor clrProgressText;
+  int oldupdate;
 public:
   cMainMenuActuator(void);
   ~cMainMenuActuator();
@@ -876,12 +826,18 @@ public:
 cMainMenuActuator::cMainMenuActuator(void)
 {
   ActuatorDevice=NULL;
+  oldupdate=-1;
   for (int i=0; i<cDevice::NumDevices() && ActuatorDevice==NULL; i++) {
     cDvbDevice * LocDvbDevice=dynamic_cast<cDvbDevice *>(cDevice::GetDevice(i));
     if (LocDvbDevice != nullptr)
       ActuatorDevice=LocDvbDevice;
   }   
   if (ActuatorDevice==NULL) return;
+  //prevent auto update of channels while the menu is shown
+  if (!PositionDisplay) {
+    oldupdate=Setup.UpdateChannels;
+    Setup.UpdateChannels=0;
+  }  
   LOCK_CHANNELS_READ;
   OldChannel=(cChannel *)Channels->GetByNumber(ActuatorDevice->CurrentChannel());
   SChannel=new cChannel();
@@ -970,6 +926,8 @@ cMainMenuActuator::~cMainMenuActuator()
   delete scantime;
   delete lockstable;
   delete refresh;
+  if (oldupdate>=0)
+    Setup.UpdateChannels=oldupdate;
   //Don't change channel if we're only showing the position
   if (PositionDisplay) {
     PositionDisplay=false;
@@ -989,7 +947,8 @@ cMainMenuActuator::~cMainMenuActuator()
       }  
     }
     ActuatorDevice->SwitchChannel(OldChannel,true);
-  }  
+  }
+  Actuator->RestoreTarget();  
 }
 
 
@@ -1287,8 +1246,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                 case MI_GOTO:
                    if (LimitsDisabled || (menuvalue[MI_GOTO]>=0 && menuvalue[MI_GOTO]<=WestLimit)) {
                      Actuator->InternalGotoPosition(menuvalue[MI_GOTO]);
-                     // FIXME PosTracker->Track();
-                     //needsFastResponse=true;
                    } else errormessage=EM_OUTSIDELIMITS;
                    break;
                 case MI_STORE:
@@ -1305,11 +1262,9 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    break;
                 case MI_STEPSEAST:
                    Actuator->Step(cPositioner::pdLeft,menuvalue[MI_STEPSEAST]);
-                   //FIXME PosTracker->Track()
                    break;
                 case MI_STEPSWEST:
                    Actuator->Step(cPositioner::pdRight,menuvalue[MI_STEPSWEST]); 
-                   //FIXME PosTracker->Track();
                    break;
                 case MI_ENABLEDISABLELIMITS:
                    LimitsDisabled=!LimitsDisabled;
@@ -1321,7 +1276,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      theplugin->SetupStore("WestLimit",WestLimit);
                      SatPositions.Recalc(-status.position);
                      Actuator->SetPos(0);
-                     //FIXME PosTracker->Track();
                      conf=0;
                    }  
                    break;
@@ -1329,7 +1283,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (conf==0) conf=1;
                    else {
                      Actuator->SetPos(0);
-                     //FIXME PosTracker->Track();
                      conf=0;
                    }  
                    break;
@@ -1415,7 +1368,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      newpos=curPosition->Position();
                      if (LimitsDisabled || (newpos>=0 && newpos<=WestLimit)) {
                        Actuator->InternalGotoPosition(newpos);
-                       //FIXME PosTracker->Track();
                      } else errormessage=EM_OUTSIDELIMITS; 
                    } 
                    break;
@@ -2002,8 +1954,7 @@ bool cPluginActuator::SetupParse(const char *Name, const char *Value)
 {
   cThemes::Save("actuator", &Theme);
   // Parse your own setup parameters and store their values.
-  if      (!strcasecmp(Name, "DVB-Karte"))      DvbKarte = atoi(Value);
-  else if (!strcasecmp(Name, "MinRefresh"))     MinRefresh = atoi(Value);
+  if      (!strcasecmp(Name, "MinRefresh"))     MinRefresh = atoi(Value);
   else if (!strcasecmp(Name, "WestLimit"))      WestLimit = atoi(Value);
   else if (!strcasecmp(Name, "ShowChanges"))    ShowChanges = atoi(Value);
   else if (!strcasecmp(Name, "Theme"))          cThemes::Load("actuator",Value, &Theme);
