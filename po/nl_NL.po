@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-13 19:35+0200\n"
+"POT-Creation-Date: 2018-10-17 16:13+0200\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Maarten Wisse <Maarten.Wisse@urz.uni-hd.de>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -131,9 +131,6 @@ msgstr "Positie buiten de limieten"
 msgid "Scanning, press any key to stop"
 msgstr "Scannen, druk op een knop om te stoppen"
 
-msgid "Card connected with motor"
-msgstr "Kaart, verbonden met motor"
-
 msgid "Min. screen refresh time (ms)"
 msgstr "Min. scherm ververstijd (ms)"
 
@@ -146,8 +143,17 @@ msgstr ""
 msgid "Card not available"
 msgstr ""
 
+msgid "Install or upgrade Wirbelscan plugin"
+msgstr ""
+
+msgid "Satellite unknown to Wirbelscan"
+msgstr ""
+
 msgid "Are you sure?"
 msgstr "Weet u het zeker"
+
+#~ msgid "Card connected with motor"
+#~ msgstr "Kaart, verbonden met motor"
 
 #~ msgid "Symbolrate:"
 #~ msgstr "Symbolrate:"

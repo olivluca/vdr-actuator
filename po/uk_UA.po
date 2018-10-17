@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-plugin-actuator\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-13 19:35+0200\n"
+"POT-Creation-Date: 2018-10-17 16:13+0200\n"
 "PO-Revision-Date: 2010-09-13 14:57+0100\n"
 "Last-Translator: Yarema aka Knedlyk <yupadmin@gmail.com>\n"
 "Language-Team: Ukrainian <translation@linux.org.ua>\n"
@@ -129,9 +129,6 @@ msgstr "Позиція поза границями"
 msgid "Scanning, press any key to stop"
 msgstr "Сканування, натисніть будь-яку кнопку для зупинки"
 
-msgid "Card connected with motor"
-msgstr "Карта з’єднана з мотром"
-
 msgid "Min. screen refresh time (ms)"
 msgstr "Мін. час для оновлення екрану (мс)"
 
@@ -144,5 +141,14 @@ msgstr "Setup.OSD$Тема"
 msgid "Card not available"
 msgstr "Карта не доступна"
 
+msgid "Install or upgrade Wirbelscan plugin"
+msgstr ""
+
+msgid "Satellite unknown to Wirbelscan"
+msgstr ""
+
 msgid "Are you sure?"
 msgstr "Ви впевнені?"
+
+#~ msgid "Card connected with motor"
+#~ msgstr "Карта з’єднана з мотром"

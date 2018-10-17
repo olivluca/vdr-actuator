@@ -24,7 +24,7 @@
 #include <vdr/pat.h>
 #include <math.h>
 #include <getopt.h>
-#include "scanner.h"
+#include "wscan.h"
 #include "module/actuator.h"
 
 static const char *VERSION        = "2.4.0";
@@ -755,6 +755,7 @@ private:
   cSatPosition *curPosition;
   cTransponders *Transponders;
   cTransponder *curtransponder;
+  int satid;
   int transponderindex; 
   int menuvalue[MAXMENUITEM+1];
   char Pol;
@@ -762,7 +763,6 @@ private:
   cChannel *SChannel;
   cOsd *osd;
   const cFont *textfont;
-  tColor color;
   fe_status_t fe_status;
   uint16_t fe_ss;
   uint16_t fe_snr;
@@ -770,26 +770,16 @@ private:
   uint32_t fe_unc;
   cTimeMs *scantime;
   cTimeMs *refresh;
-  cTimeMs *lockstable;
   bool HideOsd;
-  cChannelScanner *Scanner;
+  cWscanner *Scanner;
   enum sm {
     SM_NONE,
     SM_TRANSPONDER,
     SM_SATELLITE
     } scanmode;
-  enum ss {
-    SS_WAITING_FOR_LOCK,
-    SS_NO_LOCK,
-    SS_SCANNING
-  } scanstatus;
-  bool showScanResult;
-  int TotalFound,NewFound;  
   void DisplayOsd(void);
   void GetSignalInfo(void);
   void Tune(bool live=true);
-  void StartScan(bool live=true);
-  void StopScan(void);
   void MarkChannels(void);
   void UnmarkChannels(void);
   void DeleteMarkedChannels(void);
@@ -833,6 +823,7 @@ cMainMenuActuator::cMainMenuActuator(void)
       ActuatorDevice=LocDvbDevice;
   }   
   if (ActuatorDevice==NULL) return;
+  Scanner=new cWscanner();
   //prevent auto update of channels while the menu is shown
   if (!PositionDisplay) {
     oldupdate=Setup.UpdateChannels;
@@ -861,6 +852,9 @@ cMainMenuActuator::cMainMenuActuator(void)
   curPosition=SatPositions.Get(curSource->Position());
   Transponders=new cTransponders();
   Transponders->LoadTransponders(curSource->Position());
+  satid=-1;
+  if (Scanner->Ok()) 
+    satid=Scanner->GetSatId(curSource->Position());
   menuvalue[MI_SCANSATELLITE]=Transponders->Count();
   curtransponder=Transponders->First();
   transponderindex=1;
@@ -889,9 +883,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   else
     textfont = cFont::GetFont(fontSml);
   scanmode=SM_NONE;
-  showScanResult=false;
   scantime=new cTimeMs();
-  lockstable=new cTimeMs();
   refresh=new cTimeMs();
   refresh->Set(-MinRefresh);
   
@@ -924,8 +916,8 @@ cMainMenuActuator::~cMainMenuActuator()
   delete SChannel;
   delete Transponders;
   delete scantime;
-  delete lockstable;
   delete refresh;
+  delete Scanner;
   if (oldupdate>=0)
     Setup.UpdateChannels=oldupdate;
   //Don't change channel if we're only showing the position
@@ -1004,81 +996,21 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   //force a redraw
   if (Key!=kNone) refresh->Set(-MinRefresh);
   
-  //-------------------------------------------
-  // Hide scan result
-  //-------------------------------------------
-  if(Key!=kNone && scanmode==SM_NONE) showScanResult=false;
+  
   
   //-------------------------------------------
-  // Scanning: waiting for lock
+  //Scanning
   //-------------------------------------------
-  
-  if (scanmode!=SM_NONE && scanstatus==SS_WAITING_FOR_LOCK) {
-      GetSignalInfo();
-      if (fe_status & FE_HAS_LOCK) {
-        if (lockstable->Elapsed()>=500) {
-          Scanner=new cChannelScanner(ActuatorDevice,SChannel);
-          Scanner->Start();
-          scanstatus=SS_SCANNING;
-          }
-      } else {
-        lockstable->Set();
-        if (scantime->Elapsed()>=4000) 
-          scanstatus=SS_NO_LOCK;
-      }     
-  }
-  
-  //-------------------------------------------
-  //Scanning transponder
-  //-------------------------------------------
-  if(scanmode==SM_TRANSPONDER) {
-      if (Key!=kNone || scanstatus==SS_NO_LOCK || (scanstatus==SS_SCANNING && !Scanner->Active())) {
-        scanmode=SM_NONE;
-        StopScan();
-        if (scanstatus==SS_SCANNING) {
-          LOCK_CHANNELS_WRITE;
-          Channels->Save();
-        }
-      }
+  WIRBELSCAN_SERVICE::cWirbelscanStatus ScanStatus;
+  if(scanmode!=SM_NONE) {
+      Scanner->GetStatus(&ScanStatus);
+      if (Key!=kNone && ScanStatus.status==WIRBELSCAN_SERVICE::StatusScanning)
+          Scanner->StopScan();
+      if (ScanStatus.status != WIRBELSCAN_SERVICE::StatusScanning)
+          scanmode=SM_NONE;
       Refresh();
       return state;
   }
-  
-  
-  //-------------------------------------------
-  //Scanning satellite
-  //-------------------------------------------
-  if(scanmode==SM_SATELLITE) {
-      if (scanstatus==SS_NO_LOCK || (scanstatus==SS_SCANNING && !Scanner->Active())) {
-        StopScan();
-        curtransponder=Transponders->Next(curtransponder);
-        if(curtransponder) {
-          transponderindex++;
-          menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
-          menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
-          menuvalue[MI_SYSTEM]=curtransponder->System();
-          menuvalue[MI_MODULATION]=curtransponder->Modulation();
-          menuvalue[MI_VPID]=0;  //FIXME
-          menuvalue[MI_APID]=0;  //FIXME
-          Pol=curtransponder->Polarization();
-          StartScan(false);
-        } else {
-          scanmode=SM_NONE;
-          transponderindex=1;
-          curtransponder=Transponders->First();
-          LOCK_CHANNELS_WRITE;
-          Channels->Save();
-        }
-      }
-      if (Key!=kNone) {
-        StopScan();
-        scanmode=SM_NONE;
-        LOCK_CHANNELS_WRITE;
-        Channels->Save();
-      }
-      Refresh();
-      return state;     
-  }      
   
   //-------------------------------------------
   //No scanning, normal key processing
@@ -1110,6 +1042,8 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
                         transponderindex=1;
+                        if (Scanner->Ok())
+                            satid=Scanner->GetSatId(curSource->Position());
                       }
                     }
                     break;
@@ -1327,20 +1261,22 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                   }
                   break;       
                 case MI_SCANTRANSPONDER:
+                   if (satid<0) 
+                     break;
                    if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                      errormessage=EM_NOTPOSITIONED;
                      break;
                    }     
                    if (conf==0) conf=1;
                    else {
-                     scanmode=SM_TRANSPONDER;
-                     TotalFound=0;
-                     NewFound=0;
-                     StartScan();
+                     //FIXME scanmode=SM_TRANSPONDER;
+                     //FIXME Scanner->StartScanSingle(NULL,NULL);
                      conf=0;
                    }
                    break;
                 case MI_SCANSATELLITE:
+                   if (satid<0) 
+                     break;
                    if(curtransponder) { 
                      if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                        errormessage=EM_NOTPOSITIONED;
@@ -1356,9 +1292,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                        menuvalue[MI_APID]=0;  //FIXME
                        Pol=curtransponder->Polarization();
                        scanmode=SM_SATELLITE;
-                       TotalFound=0;
-                       NewFound=0;
-                       StartScan();
+                       Scanner->StartScan(satid);
                        conf=0;
                      }
                    }  
@@ -1483,8 +1417,14 @@ void cMainMenuActuator::DisplayOsd(void)
          int y=0;
          
          tColor text, background;
+         bool showScanResult = false;
+         WIRBELSCAN_SERVICE::cWirbelscanStatus ScanStatus;
+         if (Scanner->Ok()) {
+             Scanner->GetStatus(&ScanStatus);
+             showScanResult = ScanStatus.status == WIRBELSCAN_SERVICE::StatusScanning;
+         }
          if (ScanOnly) {
-           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
+           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), ScanStatus.numChannels, ScanStatus.newChannels);
            else buf[0]=0;
            background=clrHeaderBg;
            text=clrHeaderText;
@@ -1509,7 +1449,7 @@ void cMainMenuActuator::DisplayOsd(void)
                text=clrHeaderTextError;
                break;
             default:
-               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), TotalFound, NewFound);
+               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), ScanStatus.numChannels, ScanStatus.newChannels);
                else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
                background=clrHeaderBg;
                text=clrHeaderText;
@@ -1636,14 +1576,28 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf,sizeof(buf), "%s %s",*cSource::ToString(curSource->Code()),curSource->Description()); 
                break;  
              case MI_SCANSATELLITE:
-               if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
+               /*if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
                  background=clrBackground;
                  text=clrBackground;
-               }
+               }*/
                curwidth-=colwidth;
-               snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
+               if (Scanner->Ok() && satid>=0)
+                   snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
+               else
+                   buf[0]=0;
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
-               snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
+               if (!Scanner->Ok())
+                   snprintf(buf,sizeof(buf),tr("Install or upgrade Wirbelscan plugin"));
+               else if (satid<0)
+                   snprintf(buf,sizeof(buf),tr("Satellite unknown to Wirbelscan"));
+               else
+                   snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
+               break;
+             case MI_SCANTRANSPONDER:
+               if (Scanner->Ok() && satid>=0)
+                   snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
+               else
+                   buf[0]=0;
                break;
              default:
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
@@ -1753,26 +1707,6 @@ void cMainMenuActuator::Tune(bool live)
       ActuatorDevice->SwitchChannel(SChannel, HasSwitched);
 }
 
-
-void cMainMenuActuator::StartScan(bool live)
-{
-      printf("**** Scanning %d%c\n",menuvalue[MI_FREQUENCY], Pol);
-      showScanResult=true;
-      Tune(live);
-      scantime->Set();
-      lockstable->Set();
-      scanstatus=SS_WAITING_FOR_LOCK;
-}
-
-void cMainMenuActuator::StopScan(void)
-{
-     if (scanstatus==SS_SCANNING) {
-       printf("     Scanned in %lld ms, found %d channels (new %d)\n", scantime->Elapsed(), Scanner->TotalFound(), Scanner->NewFound());
-       TotalFound+=Scanner->TotalFound();
-       NewFound+=Scanner->NewFound();
-       delete Scanner;
-     }
-}
 
 int cMainMenuActuator::Selected(void)
 {

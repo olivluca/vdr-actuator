@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-actuator 2.4.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-16 19:07+0200\n"
+"POT-Creation-Date: 2018-10-17 16:48+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -130,9 +130,6 @@ msgstr ""
 msgid "Scanning, press any key to stop"
 msgstr ""
 
-msgid "Card connected with motor"
-msgstr ""
-
 msgid "Min. screen refresh time (ms)"
 msgstr ""
 
@@ -143,6 +140,12 @@ msgid "Setup.OSD$Theme"
 msgstr ""
 
 msgid "Card not available"
+msgstr ""
+
+msgid "Install or upgrade Wirbelscan plugin"
+msgstr ""
+
+msgid "Satellite unknown to Wirbelscan"
 msgstr ""
 
 msgid "Are you sure?"

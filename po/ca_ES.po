@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-13 19:35+0200\n"
+"POT-Creation-Date: 2018-10-17 16:13+0200\n"
 "PO-Revision-Date: 2007-08-12 15:55+0200\n"
 "Last-Translator: Jordi Vilà <jvila@tinet.org>\n"
 "Language-Team: <vdr@linuxtv.org>\n"
@@ -131,9 +131,6 @@ msgstr "Posició fora dels límits"
 msgid "Scanning, press any key to stop"
 msgstr "Escanejant, premi una tecla per a interrompre"
 
-msgid "Card connected with motor"
-msgstr "Tarja connectada al motor"
-
 msgid "Min. screen refresh time (ms)"
 msgstr "Temps mín.refresc pantalla (ms)"
 
@@ -141,13 +138,22 @@ msgid "Show dish moving"
 msgstr "Visualitzar moviments"
 
 msgid "Setup.OSD$Theme"
-msgstr ""
+msgstr "Tema"
 
 msgid "Card not available"
 msgstr "Tarja no disponible"
 
+msgid "Install or upgrade Wirbelscan plugin"
+msgstr "Instal·li o actualitzi Wirbelscan"
+
+msgid "Satellite unknown to Wirbelscan"
+msgstr "Satèl·lit desconegut per Wirblescan"
+
 msgid "Are you sure?"
 msgstr "Està segur?"
+
+#~ msgid "Card connected with motor"
+#~ msgstr "Tarja connectada al motor"
 
 #~ msgid "Symbolrate:"
 #~ msgstr "SymbolRate:"

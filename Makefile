@@ -53,7 +53,7 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o scanner.o
+OBJS = $(PLUGIN).o wscan.o
 
 ### The main target:
 
