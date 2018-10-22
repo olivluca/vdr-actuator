@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: VDR 1.5.7\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-17 16:13+0200\n"
+"POT-Creation-Date: 2018-10-22 15:37+0200\n"
 "PO-Revision-Date: 2008-03-23 23:49+0100\n"
 "Last-Translator: Diego Pierotto <vdr-italian@tiscali.it>\n"
 "Language-Team:  <vdr@linuxtv.org>\n"
@@ -17,12 +17,6 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=ISO-8859-15\n"
 "Content-Transfer-Encoding: 8bit\n"
-
-msgid "Linear or h-h actuator control"
-msgstr "Controlla un attuatore lineare o H-H"
-
-msgid "Actuator"
-msgstr "Attuatore"
 
 msgid "Drive East"
 msgstr "Sposta a Est"
@@ -143,14 +137,20 @@ msgstr "Stile interfaccia"
 msgid "Card not available"
 msgstr "Scheda non disponibile"
 
-msgid "Install or upgrade Wirbelscan plugin"
-msgstr "Installare o attualizzare Wirbelscan"
-
-msgid "Satellite unknown to Wirbelscan"
-msgstr "Satellite sconosciuto da Wirblescan"
-
 msgid "Are you sure?"
 msgstr "Sei sicuro?"
+
+#~ msgid "Linear or h-h actuator control"
+#~ msgstr "Controlla un attuatore lineare o H-H"
+
+#~ msgid "Actuator"
+#~ msgstr "Attuatore"
+
+#~ msgid "Install or upgrade Wirbelscan plugin"
+#~ msgstr "Installare o attualizzare Wirbelscan"
+
+#~ msgid "Satellite unknown to Wirbelscan"
+#~ msgstr "Satellite sconosciuto da Wirblescan"
 
 #~ msgid "Card connected with motor"
 #~ msgstr "Scheda collegata al motore"

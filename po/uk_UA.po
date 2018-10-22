@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: vdr-plugin-actuator\n"
 "Report-Msgid-Bugs-To: <see README>\n"
-"POT-Creation-Date: 2018-10-17 16:13+0200\n"
+"POT-Creation-Date: 2018-10-22 15:37+0200\n"
 "PO-Revision-Date: 2010-09-13 14:57+0100\n"
 "Last-Translator: Yarema aka Knedlyk <yupadmin@gmail.com>\n"
 "Language-Team: Ukrainian <translation@linux.org.ua>\n"
@@ -15,12 +15,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\\n\n"
-
-msgid "Linear or h-h actuator control"
-msgstr "Лінійне або h-h керування приводом мотора"
-
-msgid "Actuator"
-msgstr "Привід мотору"
 
 msgid "Drive East"
 msgstr "Повернути на схід"
@@ -141,14 +135,14 @@ msgstr "Setup.OSD$Тема"
 msgid "Card not available"
 msgstr "Карта не доступна"
 
-msgid "Install or upgrade Wirbelscan plugin"
-msgstr ""
-
-msgid "Satellite unknown to Wirbelscan"
-msgstr ""
-
 msgid "Are you sure?"
 msgstr "Ви впевнені?"
+
+#~ msgid "Linear or h-h actuator control"
+#~ msgstr "Лінійне або h-h керування приводом мотора"
+
+#~ msgid "Actuator"
+#~ msgstr "Привід мотору"
 
 #~ msgid "Card connected with motor"
 #~ msgstr "Карта з’єднана з мотром"

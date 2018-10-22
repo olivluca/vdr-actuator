@@ -6,30 +6,28 @@
  * $Id$
  */
 
-//#include <linux/dvb/frontend.h>
 #include <linux/dvb/version.h>
 #include <sys/ioctl.h>
 #include <vdr/config.h>
+#include <vdr/device.h>
 #include <vdr/diseqc.h>
-#include <vdr/plugin.h>
 #include <vdr/sources.h>
 #include <vdr/menuitems.h>
 #include <vdr/dvbdevice.h>
-#include <vdr/device.h>
 #include <vdr/channels.h>
-#include <vdr/status.h>
-#include <vdr/positioner.h>
 #include <vdr/interface.h>
 #include <vdr/osd.h>
 #include <vdr/pat.h>
 #include <math.h>
 #include <getopt.h>
-#include "wscan.h"
-#include "module/actuator.h"
+#include <linux/dvb/dmx.h>
 
-static const char *VERSION        = "2.4.0";
-static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
-static const char *MAINMENUENTRY  = trNOOP("Actuator");
+#include "actuator.h"
+#include "scan.h"
+
+
+//------------------------------------------------------
+
 
 //Selectable buttons on the plugin menu: indexes
 enum menuindex {
@@ -46,7 +44,6 @@ enum menuindex {
                    MI_SCANSATELLITE,
   MI_MARK,         MI_UNMARK,              MI_DELETE                 
   };
-
 
 //Items per row
 static const int itemsperrow[] = {
@@ -68,6 +65,9 @@ static const int itemsperrow[] = {
 #define MAXROW 11
 #define MINROWSCANONLY 4
 #define MINITEMSCANONLY MI_SATPOSITION
+
+int menuvalue[MAXMENUITEM+1];  //FIXME
+
 
 
 //Selectable buttons on the plugin menu: captions
@@ -166,24 +166,6 @@ THEME_CLR(Theme, ProgressText, clrWhite);
 // --- cSatPosition -----------------------------------------------------------
 // associates one source with its position
 
-class cSatPosition:public cListObject {
-private:
-  int source;
-  int longitude;
-  int position;
-public:
-  cSatPosition(void) {}  
-  cSatPosition(int Source, int Position);
-  ~cSatPosition();
-  bool Parse(const char *s);
-  bool Save(FILE *f);
-  virtual int Compare(const cListObject &ListObject) const { return Position()-((const cSatPosition *)&ListObject)->Position(); }
-  int Source(void) const { return source; }
-  int Longitude(void) const { return longitude; }
-  int Position(void) const { return position; }
-  bool SetPosition(int Position);
-  };
-
 cSatPosition::cSatPosition(int Source, int Position)
 {
   source = Source;
@@ -221,15 +203,6 @@ bool cSatPosition::SetPosition(int Position)
 
 // --- cSatPositions --------------------------------------------------------
 // All the positions known
-
-class cSatPositions : public cConfig<cSatPosition> {
-public:
-  cSatPosition *Get(int Longitude);
-  int Longitude(int Position);
-  void Recalc(int offset);
-  bool Load(const char * Filename);
-  bool Save(void);
-  };  
 
 cSatPosition *cSatPositions::Get(int Longitude)
 {
@@ -284,62 +257,10 @@ bool cSatPositions::Save(void)
 
 cSatPositions SatPositions;
 
+
+
 //--- cPosTracker -----------------------------------------------------------
 // Follows the dish when it's moving to store the position on disk
-
-class cActuator;
-
-class cPosTracker:private cThread {
-private:
-  cActuator * m_actuator;
-  int LastPositionSaved;
-  const char *positionfilename;
-public:
-  cPosTracker(cActuator *actuator);    
-  ~cPosTracker(void);
-  void SavePos(int newpos);
-  void Track(void) { Start(); }
-protected:
-  void Action(void);
-};
-
-//------ declaration of cActuator (since it's used by the implementation of cPosTracker
-
-class cActuator:public cPositioner {
-private:
-  cPosTracker * m_PosTracker;
-  mutable cMutex mutex;
-  bool m_Error;
-  cString m_ErrorText;
-  //actuator device
-  int fd_actuator;
-  int m_Target;
-public:
-  cActuator();
-  ~cActuator();
-  int Fd_Frontend(void) { return Frontend(); }
-  bool Opened(void) { return fd_actuator > 0; }
-  void Status(actuator_status * status) const;
-  void SetPos(int position);
-  void InternalGotoPosition(int position);
-  void RestoreTarget(void);
-  virtual cString Error(void) const;
-  virtual void Drive(ePositionerDirection Direction);
-  virtual void Step(ePositionerDirection Direction, uint Steps = 1);
-  virtual void Halt(void);
-  virtual void SetLimit(ePositionerDirection Direction);
-  virtual void DisableLimits(void);
-  virtual void EnableLimits(void);
-  virtual void StorePosition(uint Number);
-  virtual void RecalcPositions(uint Number);
-  virtual void GotoPosition(uint Number, int Longitude);
-  virtual void GotoAngle(int Longitude);
-  virtual int CurrentLongitude(void) const;
-  virtual bool IsMoving(void) const;
-
-};
-
-//--- cPosTracker implementation ----------------------------------------------------
 
 cPosTracker::cPosTracker(cActuator * actuator):cThread("Position Tracker")
 {
@@ -594,18 +515,6 @@ cActuator * Actuator = NULL;
 
 // --- cMenuSetupActuator ------------------------------------------------------
 
-class cMenuSetupActuator : public cMenuSetupPage {
-private:
-  int newMinRefresh;
-  int newShowChanges;
-  cThemes themes;
-  int themeIndex;
-protected:
-  virtual void Store(void);
-public:
-  cMenuSetupActuator(void);
-  };
-
 cMenuSetupActuator::cMenuSetupActuator(void)
 {
   newMinRefresh=MinRefresh;
@@ -629,30 +538,6 @@ void cMenuSetupActuator::Store(void)
 
 // --- cTransponder -----------------------------------------------------------
 //Transponder data for satellite scan
-
-class cTransponder:public cListObject {
-private:
-  int frequency;
-  int srate;
-  int system;
-  int modulation;
-  char polarization;
-  
-public:
-  cTransponder(void) { frequency=0; }  
-  ~cTransponder();
-  bool Parse(const char *s);
-  int Frequency(void) const { return frequency; }
-  int Srate(void) const { return srate; }
-  int System(void) const { return system; }
-  int Modulation(void) const { return modulation; }
-  char Polarization(void) const { return polarization; }
-  };
-
-
-cTransponder::~cTransponder()
-{
-}  
 
 //I'm too lazy to write my own file reading function, so I use the standard one and
 //will trim later invalid "entries"
@@ -703,14 +588,8 @@ bool cTransponder::Parse(const char *s)
   return true; //always, will trim invalid entries later on  
 }
 
-
 // --- cTransponders --------------------------------------------------------
 //All the transponders of the current satellite
-
-class cTransponders : public cConfig<cTransponder> {
-public:
-  void LoadTransponders(int source);
-  };  
 
 void cTransponders::LoadTransponders(int source)
 {
@@ -721,7 +600,6 @@ void cTransponders::LoadTransponders(int source)
   }    
   char buffer[100];
   snprintf(buffer,sizeof(buffer),"transponders/%04d.ini",satlong);
-  printf("============================ %s\n",buffer);
   Load(AddDirectory(cPlugin::ConfigDirectory(),buffer));
   cTransponder *p = First();
   while(p) {
@@ -738,80 +616,8 @@ void cTransponders::LoadTransponders(int source)
   //printf("transponder file : %s   count: %d\n", buffer, Count());
 }  
 
+
 // -- cMainMenuActuator --------------------------------------------------------
-
-class cMainMenuActuator : public cOsdObject {
-private:
-  cDvbDevice *ActuatorDevice;
-  int digits,menucolumn,menuline,conf,repeat,HasSwitched,fd_frontend;
-  enum em {
-    EM_NONE,
-    EM_OUTSIDELIMITS,
-    EM_ATLIMITS,
-    EM_NOTPOSITIONED
-    } errormessage;
-  bool LimitsDisabled;
-  cSource *curSource;
-  cSatPosition *curPosition;
-  cTransponders *Transponders;
-  cTransponder *curtransponder;
-  int satid;
-  int transponderindex; 
-  int menuvalue[MAXMENUITEM+1];
-  char Pol;
-  cChannel *OldChannel;
-  cChannel *SChannel;
-  cOsd *osd;
-  const cFont *textfont;
-  fe_status_t fe_status;
-  uint16_t fe_ss;
-  uint16_t fe_snr;
-  uint32_t fe_ber;
-  uint32_t fe_unc;
-  cTimeMs *scantime;
-  cTimeMs *refresh;
-  bool HideOsd;
-  cWscanner *Scanner;
-  enum sm {
-    SM_NONE,
-    SM_TRANSPONDER,
-    SM_SATELLITE
-    } scanmode;
-  void DisplayOsd(void);
-  void GetSignalInfo(void);
-  void Tune(bool live=true);
-  void MarkChannels(void);
-  void UnmarkChannels(void);
-  void DeleteMarkedChannels(void);
-  int Selected(void);
-  tColor clrBackground;
-  tColor clrHeaderBg;
-  tColor clrHeaderText;
-  tColor clrHeaderBgError;
-  tColor clrHeaderTextError;
-  tColor clrRedBar;
-  tColor clrYellowBar;
-  tColor clrGreenBar;
-  tColor clrStatusText;
-  tColor clrSignalOk;
-  tColor clrSignalNo;
-  tColor clrNormalText;
-  tColor clrNormalBg;
-  tColor clrSelectedText;
-  tColor clrSelectedBg;
-  tColor clrMessageText;
-  tColor clrMessageBg;
-  tColor clrProgressBar;
-  tColor clrProgressText;
-  int oldupdate;
-public:
-  cMainMenuActuator(void);
-  ~cMainMenuActuator();
-  void Refresh(void);
-  virtual void Show(void);
-  virtual eOSState ProcessKey(eKeys Key);
-};
-
 
 cMainMenuActuator::cMainMenuActuator(void)
 {
@@ -823,7 +629,7 @@ cMainMenuActuator::cMainMenuActuator(void)
       ActuatorDevice=LocDvbDevice;
   }   
   if (ActuatorDevice==NULL) return;
-  Scanner=new cWscanner();
+  Scanner=new dvbScanner(this,ActuatorDevice);
   //prevent auto update of channels while the menu is shown
   if (!PositionDisplay) {
     oldupdate=Setup.UpdateChannels;
@@ -852,9 +658,6 @@ cMainMenuActuator::cMainMenuActuator(void)
   curPosition=SatPositions.Get(curSource->Position());
   Transponders=new cTransponders();
   Transponders->LoadTransponders(curSource->Position());
-  satid=-1;
-  if (Scanner->Ok()) 
-    satid=Scanner->GetSatId(curSource->Position());
   menuvalue[MI_SCANSATELLITE]=Transponders->Count();
   curtransponder=Transponders->First();
   transponderindex=1;
@@ -1001,12 +804,10 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   //-------------------------------------------
   //Scanning
   //-------------------------------------------
-  WIRBELSCAN_SERVICE::cWirbelscanStatus ScanStatus;
   if(scanmode!=SM_NONE) {
-      Scanner->GetStatus(&ScanStatus);
-      if (Key!=kNone && ScanStatus.status==WIRBELSCAN_SERVICE::StatusScanning)
+      if (Key!=kNone)
           Scanner->StopScan();
-      if (ScanStatus.status != WIRBELSCAN_SERVICE::StatusScanning)
+      if (!Scanner->Running())
           scanmode=SM_NONE;
       Refresh();
       return state;
@@ -1042,8 +843,6 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                         menuvalue[MI_SCANSATELLITE]=Transponders->Count();
                         curtransponder=Transponders->First();
                         transponderindex=1;
-                        if (Scanner->Ok())
-                            satid=Scanner->GetSatId(curSource->Position());
                       }
                     }
                     break;
@@ -1261,22 +1060,18 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                   }
                   break;       
                 case MI_SCANTRANSPONDER:
-                   if (satid<0) 
-                     break;
                    if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                      errormessage=EM_NOTPOSITIONED;
                      break;
                    }     
                    if (conf==0) conf=1;
                    else {
-                     //FIXME scanmode=SM_TRANSPONDER;
-                     //FIXME Scanner->StartScanSingle(NULL,NULL);
+                     scanmode=SM_TRANSPONDER;
+                     Scanner->StartScan(menuvalue[MI_SYSTEM],menuvalue[MI_MODULATION], menuvalue[MI_FREQUENCY]*1000, Pol, menuvalue[MI_SYMBOLRATE]*1000);
                      conf=0;
                    }
                    break;
                 case MI_SCANSATELLITE:
-                   if (satid<0) 
-                     break;
                    if(curtransponder) { 
                      if (!ScanOnly && (!curPosition || curPosition->Position() != status.target || abs(status.target-status.position)>POSTOLERANCE)) {
                        errormessage=EM_NOTPOSITIONED;
@@ -1284,18 +1079,11 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      }     
                      if (conf==0) conf=1;
                      else {
-                       menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
-                       menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
-                       menuvalue[MI_SYSTEM]=curtransponder->System();
-                       menuvalue[MI_MODULATION]=curtransponder->Modulation();
-                       menuvalue[MI_VPID]=0;  //FIXME
-                       menuvalue[MI_APID]=0;  //FIXME
-                       Pol=curtransponder->Polarization();
                        scanmode=SM_SATELLITE;
-                       Scanner->StartScan(satid);
+                       Scanner->StartScan(Transponders);
                        conf=0;
                      }
-                   }  
+                   }
                    break;
                  case MI_SATPOSITION:
                    if (curPosition) {
@@ -1417,14 +1205,9 @@ void cMainMenuActuator::DisplayOsd(void)
          int y=0;
          
          tColor text, background;
-         bool showScanResult = false;
-         WIRBELSCAN_SERVICE::cWirbelscanStatus ScanStatus;
-         if (Scanner->Ok()) {
-             Scanner->GetStatus(&ScanStatus);
-             showScanResult = ScanStatus.status == WIRBELSCAN_SERVICE::StatusScanning;
-         }
+         bool showScanResult = (scanmode != SM_NONE);
          if (ScanOnly) {
-           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), ScanStatus.numChannels, ScanStatus.newChannels);
+           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->Channels(), Scanner->NewChannels());
            else buf[0]=0;
            background=clrHeaderBg;
            text=clrHeaderText;
@@ -1449,7 +1232,7 @@ void cMainMenuActuator::DisplayOsd(void)
                text=clrHeaderTextError;
                break;
             default:
-               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), ScanStatus.numChannels, ScanStatus.newChannels);
+               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->Channels(), Scanner->NewChannels());
                else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
                background=clrHeaderBg;
                text=clrHeaderText;
@@ -1576,28 +1359,14 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf,sizeof(buf), "%s %s",*cSource::ToString(curSource->Code()),curSource->Description()); 
                break;  
              case MI_SCANSATELLITE:
-               /*if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
+               if(menuvalue[MI_SCANSATELLITE]==0) { //hide the option
                  background=clrBackground;
                  text=clrBackground;
-               }*/
+               }
                curwidth-=colwidth;
-               if (Scanner->Ok() && satid>=0)
-                   snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
-               else
-                   buf[0]=0;
+               snprintf(buf, sizeof(buf),"(%d/%d)", transponderindex,menuvalue[MI_SCANSATELLITE]);
                osd->DrawText(x+curwidth,y,buf,text,background,textfont,colwidth,rowheight,taRight);
-               if (!Scanner->Ok())
-                   snprintf(buf,sizeof(buf),tr("Install or upgrade Wirbelscan plugin"));
-               else if (satid<0)
-                   snprintf(buf,sizeof(buf),tr("Satellite unknown to Wirbelscan"));
-               else
-                   snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
-               break;
-             case MI_SCANTRANSPONDER:
-               if (Scanner->Ok() && satid>=0)
-                   snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
-               else
-                   buf[0]=0;
+               snprintf(buf, sizeof(buf),"%s",tr(menucaption[itemindex]));
                break;
              default:
                snprintf(buf,sizeof(buf),tr(menucaption[itemindex]),menuvalue[itemindex]);
@@ -1632,9 +1401,7 @@ void cMainMenuActuator::DisplayOsd(void)
             default:  
               osd->DrawRectangle(left,y,Setup.OSDWidth,y+rowheight-1,clrBackground);
               if(scanmode!=SM_NONE) {
-                int barwidth;
-                if (scanmode==SM_TRANSPONDER) barwidth=Setup.OSDWidth*scantime->Elapsed()/10000;
-                else barwidth=Setup.OSDWidth*(10000*(transponderindex-1)+scantime->Elapsed())/10000/menuvalue[MI_SCANSATELLITE];
+                int barwidth=Setup.OSDWidth*Scanner->Progress()/100;
                 osd->DrawRectangle(left,y,barwidth,y+rowheight-1,clrProgressBar);
                 osd->DrawText(left,y,tr(scanning),clrProgressText,clrTransparent,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               }
@@ -1674,7 +1441,21 @@ void cMainMenuActuator::GetSignalInfo(void)
       CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
 }
 
-void cMainMenuActuator::Tune(bool live)
+bool cMainMenuActuator::Tune(uint32_t delsys, uint32_t modulation, uint32_t frequency, char polarization, uint32_t symbolrate)
+{
+    menuvalue[MI_SYSTEM]=delsys;
+    menuvalue[MI_MODULATION]=modulation;
+    menuvalue[MI_FREQUENCY]=frequency;
+    menuvalue[MI_SYMBOLRATE]=symbolrate;
+    Pol=polarization;
+    Tune();
+    bool result=ActuatorDevice->HasLock(4000);
+    if (result)
+        ActuatorDevice->SetOccupied(90);
+    return result;
+}
+ 
+void cMainMenuActuator::Tune(void)
 {
       int Apids[MAXAPIDS + 1] = { 0 };
       int Atypes[MAXAPIDS + 1] = { 0 };
@@ -1698,7 +1479,7 @@ void cMainMenuActuator::Tune(bool live)
       dtp.SetRollOff(ROLLOFF_AUTO);  
       SChannel->cChannel::SetTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],menuvalue[MI_SYMBOLRATE],dtp.ToString('S'));
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;
-      if (HasSwitched && live) {
+      if (HasSwitched) {
         if (cDevice::GetDevice(SChannel,0,true)==ActuatorDevice) {
           cDevice::PrimaryDevice()->SwitchChannel(SChannel, HasSwitched);
           return;
