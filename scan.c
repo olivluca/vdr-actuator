@@ -44,7 +44,7 @@ dvbScanner::~dvbScanner()
 {
 }
 
-void dvbScanner::StartScan(cTransponders *Transponders)
+void dvbScanner::StartScan(cSource *source, cTransponders *Transponders)
 {
     dvb_file *entries=(dvb_file *)calloc(sizeof(dvb_file), 1);
     dvb_entry *entry=NULL;
@@ -67,6 +67,7 @@ void dvbScanner::StartScan(cTransponders *Transponders)
         p=Transponders->Next(p);
         
     }
+    m_source = source;
     m_entries = entries;
     m_parms = NULL;
     m_channels = 0;
@@ -76,7 +77,7 @@ void dvbScanner::StartScan(cTransponders *Transponders)
 }
 
 
-void dvbScanner::StartScan(int delsys, int modulation, int freq, char pol, int sr)
+void dvbScanner::StartScan(cSource *source, int delsys, int modulation, int freq, char pol, int sr)
 {
     struct dvb_entry *entry = (dvb_entry *)calloc(sizeof(dvb_entry),1);
     dvb_file *entries=(dvb_file *)calloc(sizeof(dvb_file), 1);
@@ -87,7 +88,13 @@ void dvbScanner::StartScan(int delsys, int modulation, int freq, char pol, int s
     dvb_store_entry_prop(entry, DTV_SYMBOL_RATE, sr * 1000);
     dvb_store_entry_prop(entry, DTV_MODULATION, modulation);
     dvb_store_entry_prop(entry, DTV_POLARIZATION, PolarizationCharToEnum(pol));
-    StartScan(entries);
+    m_source = source;
+    m_entries = entries;
+    m_parms = NULL;
+    m_channels = 0;
+    m_newchannels = 0;
+    m_progress = 0;
+    Start();
 }
 
 
@@ -114,10 +121,10 @@ void dvb_my_log(int level, const char *fmt, ...)
 
 void dvbScanner::Action()
 {
-    struct dvb_file *dvb_file = NULL, *dvb_file_new = NULL;
+    struct dvb_file *dvb_file_new = NULL;
     struct dvb_device *dvb;
     cDvbDevice *dev=static_cast<cDvbDevice *>(m_device);
-    uint32_t freq, sys, pol, symbolrate, delsys, modulation;    
+    uint32_t freq, pol, symbolrate, delsys, modulation;    
     int count = 0, shift;    
     
     dvb = dvb_dev_alloc();
@@ -126,7 +133,7 @@ void dvbScanner::Action()
       esyslog("******dvb_dev_alloc()");
       return;
     }
-    dvb_dev_set_log(dvb,1,dvb_my_log);
+    //dvb_dev_set_log(dvb,1,dvb_my_log);
     dvb_dev_find(dvb, NULL, NULL);
     dvb_dev_list *dvb_dev = dvb_dev_seek_by_adapter(dvb, dev->Adapter(), dev->Frontend(), DVB_DEVICE_FRONTEND);
     if (!dvb_dev) {
@@ -149,7 +156,7 @@ void dvbScanner::Action()
     }    
     struct dvb_open_descriptor *dmx_fd = dvb_dev_open(dvb, dvb_dev->sysname, O_RDWR);
     if (!dmx_fd) {
-      esyslog("******** cannot open denux device");
+      esyslog("******** cannot open demux device");
       dvb_dev_free(dvb);
       return;
     }
@@ -226,7 +233,7 @@ void dvbScanner::Action()
 		}
 		if (!dvb_scan_handler)
 			continue;
-                
+			
 		/*
 		 * Store the service entry
 		 */
@@ -234,19 +241,16 @@ void dvbScanner::Action()
 				  1 /*args->get_detected*/, 1 /* args->get_nit*/);
                 
                 if (dvb_file_new) {
-                    int countentries=0;
-                    for (dvb_entry *countentry=dvb_file_new->first_entry; countentry != NULL; countentry = countentry->next) {
-                        if (countentry->channel && (countentry->video_pid_len>0 || countentry->audio_pid_len>0))
-                          countentries++;
-                    }
-                    m_channels = countentries;
+                    AddChannels(dvb_file_new);
+                    dvb_file_free(dvb_file_new);
+                    dvb_file_new=NULL;
                 }
 
 		/*
 		 * Add new transponders based on NIT table information
 		 */
 		dvb_add_scaned_transponders(m_parms, dvb_scan_handler,
-					    dvb_file->first_entry, entry);
+					    m_entries->first_entry, entry);
 
 		/*
 		 * Free the scan handler associated with the transponder
@@ -260,17 +264,102 @@ void dvbScanner::Action()
    m_parms = NULL;
    dvb_dev_close(dmx_fd);
    dvb_dev_free(dvb);
-   
+}
+
+void dvbScanner::ChanFromEntry(cChannels* channels, cChannel *channel, dvb_entry *entry)
+{
+    uint32_t freq, polarization, symbolrate, delsys, modulation, inversion, fec, pilot, rolloff, streamid;
+    std::string params;    
+    char tmp[8];
+    params=""; 
+    
+    dvb_retrieve_entry_prop(entry, DTV_FREQUENCY, &freq);
+    dvb_retrieve_entry_prop(entry, DTV_SYMBOL_RATE, &symbolrate);
+    dvb_retrieve_entry_prop(entry, DTV_DELIVERY_SYSTEM, &delsys);
+    dvb_retrieve_entry_prop(entry, DTV_INVERSION, &inversion);
+    dvb_retrieve_entry_prop(entry, DTV_MODULATION, &modulation);
+    dvb_retrieve_entry_prop(entry, DTV_POLARIZATION, &polarization);
+    dvb_retrieve_entry_prop(entry, DTV_INNER_FEC, &fec);
+    if (delsys == SYS_DVBS2) {
+      dvb_retrieve_entry_prop(entry, DTV_PILOT, &pilot);
+      dvb_retrieve_entry_prop(entry, DTV_ROLLOFF, &rolloff);
+      dvb_retrieve_entry_prop(entry, DTV_STREAM_ID, &streamid);
+    }  
+    
+    
+    params+=PolarizationEnumToChar(polarization);
+    switch(fec) {
+        case FEC_NONE: params+="C0"; break;
+        case FEC_1_2: params+= "C12"; break;
+        case FEC_2_3: params+= "C23"; break;
+        case FEC_3_4: params+= "C34"; break;
+        case FEC_3_5: params+= "C35"; break;
+        case FEC_4_5: params+= "C45"; break;
+        case FEC_5_6: params+= "C56"; break;
+        case FEC_6_7: params+= "C67"; break;
+        case FEC_7_8: params+= "C78"; break;
+        case FEC_8_9: params+= "C89"; break;
+        case FEC_9_10: params+="C910"; break;
+    }
+    
+    switch(inversion) {
+      case INVERSION_OFF: params+="I0" ; break;
+      case INVERSION_ON: params+="I1" ; break;
+    }
+    
+    switch(modulation) {
+        case QAM_16: params+=   "M16";  break;
+        case QAM_32: params+=   "M32";  break;
+        case QAM_64: params+=   "M64";  break;
+        case QAM_128: params+=  "M128"; break;
+        case QAM_256: params+=  "M256"; break;
+        case QPSK: params+=     "M2";   break;
+        case PSK_8: params+=    "M5";   break;
+        case APSK_16: params+=  "M6";   break;
+        case APSK_32: params+=  "M7";   break;
+        case VSB_8: params+=    "M10";  break;
+        case VSB_16: params+=   "M11";  break;
+        case DQPSK: params+=    "M12";  break;
+    }
+    
+    if (delsys == SYS_DVBS2) {
+      switch(pilot) {
+        case PILOT_OFF: params+= "N0"; break;
+        case PILOT_ON:  params+= "N1"; break;
+      }
+      switch(rolloff) {
+        case ROLLOFF_AUTO: params+= "O0"; break;
+        case ROLLOFF_20:   params+= "O20"; break;
+        case ROLLOFF_25:   params+= "O25"; break;
+        case ROLLOFF_35:   params+= "O35"; break;
+      }
+      snprintf(tmp,8,"P%d",streamid);
+      params+=tmp;
+      params+="S1";
+    } else {
+      params+="S0";
+    }
+
+    channel->SetId(channels, entry->network_id, entry->transport_id, entry->service_id);
+    channel->SetTransponderData(m_source->Code(), freq, symbolrate/1000, params.c_str());
+    channel->SetName(entry->channel,"","");
+    //channel->SetPids(entry->video_pid_len > 0 ? entry->video_pids[0] : 0, 
+    dsyslog("ChanFromEntry %s",channel->ToText());
+}
+
+void dvbScanner::AddChannels(dvb_file *dvb_file_new)
+{   
    //add/update found channels to vdr channels
 #include <vdr/channels.h>
    //FIXME
+                    
    cChannel *newCh;
    if (dvb_file_new) {
        cStateKey WriteState;
        cChannels* WChannels = (cChannels*) cChannels::GetChannelsWrite(WriteState, 30000);
        if (WChannels) {
            int line=0;
-           for (dvb_entry *entry=dvb_file_new->first_entry; entry != NULL; entry = entry->next) {
+           for (dvb_entry *entry=dvb_file_new->first_entry; entry != NULL && WChannels != NULL ; entry = entry->next) {
                line++;
                if (!entry->channel) {
                    esyslog("missing channel name, skipping entry %d",line);
@@ -279,7 +368,9 @@ void dvbScanner::Action()
                    esyslog("skip entry %s, no audio or video pids", entry->channel);
                    continue;
                }
-               dsyslog("examining entry %d channel %d",line,entry->channel);
+               dsyslog("examining entry %d channel %s vchannel %s",line,entry->channel,entry->vchannel);
+               m_channels++;
+               newCh=NULL;
                for(int i = 0; i < WChannels->Count(); i++) {
                    cChannel* ch = WChannels->Get(i);
                    if (ch->Nid() != entry->network_id ||
@@ -290,14 +381,21 @@ void dvbScanner::Action()
                    break;
                }
                
+               if (newCh) {
+                 dsyslog("updating channel");
+                 ChanFromEntry(WChannels,newCh,entry);
+                   
+               } else {
+                 m_newchannels++;
+                 newCh = new cChannel;
+                 ChanFromEntry(WChannels,newCh,entry);
+                 //WChannels->Add(c);
+                 dsyslog("added channel");
+               }
            }
-           
+       WriteState.Remove();    
        } else {
            esyslog("Could not get Channels for writing!");
        }
-       
-       dvb_file_free(dvb_file_new);
    }
-   
-    
 }

@@ -21,13 +21,15 @@ private:
    int m_progress;
    int m_channels;
    int m_newchannels;
-   void StartScan(dvb_file * entries);
+   cSource *m_source;
    struct dvb_v5_fe_parms *m_parms; 
+   void ChanFromEntry(cChannels* channels, cChannel *channel, dvb_entry *entry);
+   void AddChannels(dvb_file *dvb_file_new);
 public:
    dvbScanner(cMainMenuActuator *parent, cDvbDevice *device);
    virtual ~dvbScanner();
-   void StartScan(cTransponders *transponders);
-   void StartScan(int delsys, int modulation, int freq, char pol, int sr);
+   void StartScan(cSource *source, cTransponders *transponders);
+   void StartScan(cSource *source, int delsys, int modulation, int freq, char pol, int sr);
    void StopScan(void);
    bool Running(void) { return Active(); }
    int Progress(void) { return m_progress; }

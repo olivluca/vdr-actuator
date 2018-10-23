@@ -25,6 +25,12 @@
 #include "actuator.h"
 #include "scan.h"
 
+static const char *VERSION        = "2.4.0";
+static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
+static const char *MAINMENUENTRY  = trNOOP("Actuator");
+
+#define DVB_SYSTEM_1 0
+#define DVB_SYSTEM_2 1
 
 //------------------------------------------------------
 
@@ -588,6 +594,10 @@ bool cTransponder::Parse(const char *s)
   return true; //always, will trim invalid entries later on  
 }
 
+cTransponder::~cTransponder()
+{
+}
+
 // --- cTransponders --------------------------------------------------------
 //All the transponders of the current satellite
 
@@ -671,7 +681,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   if (Pol=='l') Pol='L';
   if (Pol=='r') Pol='R';
   menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
-  menuvalue[MI_SYSTEM]=dtp.System();
+  menuvalue[MI_SYSTEM]=dtp.System() == DVB_SYSTEM_1 ? SYS_DVBS : SYS_DVBS2;
   menuvalue[MI_MODULATION]=dtp.Modulation();
   menuvalue[MI_VPID]=OldChannel->Vpid();
   menuvalue[MI_APID]=OldChannel->Apid(0);
@@ -1067,7 +1077,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (conf==0) conf=1;
                    else {
                      scanmode=SM_TRANSPONDER;
-                     Scanner->StartScan(menuvalue[MI_SYSTEM],menuvalue[MI_MODULATION], menuvalue[MI_FREQUENCY]*1000, Pol, menuvalue[MI_SYMBOLRATE]*1000);
+                     Scanner->StartScan(curSource, menuvalue[MI_SYSTEM],menuvalue[MI_MODULATION], menuvalue[MI_FREQUENCY], Pol, menuvalue[MI_SYMBOLRATE]);
                      conf=0;
                    }
                    break;
@@ -1080,7 +1090,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                      if (conf==0) conf=1;
                      else {
                        scanmode=SM_SATELLITE;
-                       Scanner->StartScan(Transponders);
+                       Scanner->StartScan(curSource, Transponders);
                        conf=0;
                      }
                    }
@@ -1336,7 +1346,7 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf, sizeof(buf),"%s %d", tr(menucaption[itemindex]), menuvalue[itemindex]);
                break;  
              case MI_SYSTEM:
-               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], SystemValuesSat));
+               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), menuvalue[itemindex] == SYS_DVBS ? "DVB-S" : ( menuvalue[itemindex] == SYS_DVBS2 ? "DVB-S2" : "???"));
                break;
              case MI_MODULATION:
                snprintf(buf, sizeof(buf),"%s %s ", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], ModulationValues));
@@ -1475,7 +1485,7 @@ void cMainMenuActuator::Tune(void)
       cDvbTransponderParameters dtp;
       dtp.SetPolarization(Pol);
       dtp.SetModulation(menuvalue[MI_MODULATION]);
-      dtp.SetSystem(menuvalue[MI_SYSTEM]);
+      dtp.SetSystem(menuvalue[MI_SYSTEM] == SYS_DVBS2 ? DVB_SYSTEM_2 : DVB_SYSTEM_1);
       dtp.SetRollOff(ROLLOFF_AUTO);  
       SChannel->cChannel::SetTransponderData(curSource->Code(),menuvalue[MI_FREQUENCY],menuvalue[MI_SYMBOLRATE],dtp.ToString('S'));
       if (ActuatorDevice==cDevice::ActualDevice()) HasSwitched=true;

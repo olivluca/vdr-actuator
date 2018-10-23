@@ -11,9 +11,6 @@
 #include <vdr/plugin.h>
 #include "module/actuator.h"
 
-static const char *VERSION        = "2.4.0";
-static const char *DESCRIPTION    = trNOOP("Linear or h-h actuator control");
-static const char *MAINMENUENTRY  = trNOOP("Actuator");
 
 
 // --- cSatPosition -----------------------------------------------------------
@@ -139,7 +136,6 @@ public:
   int System(void) const { return system; }
   int Modulation(void) const { return modulation; }
   char Polarization(void) const { return polarization; }
-  //dvb_entry *DvbEntry(void);
   };
 
 // --- cTransponders --------------------------------------------------------
