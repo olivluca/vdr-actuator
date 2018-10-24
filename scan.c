@@ -1,41 +1,33 @@
+/*
+ * scan.c: actuator - A plugin for the Video Disk Recordes 
+ *
+ * adapted from statemachine.c of the wirbelscan plugin 
+ * (License GPL, Written by  Winfried Koehler <w_scan AT gmx MINUS topmail DOT de>
+ *  see  wirbel.htpc-forum.de/wirbelscan/index2.html)
+ *
+ */
+
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string>
+#include <vdr/tools.h>
+#include "scan.h"
+#include "scanfilter.h"
+#include "common.h"
+#include "dvb_wrapper.h"
+//#include "menusetup.h"
 #include "actuator.h"
 #include "scan.h"
+#include "si_ext.h"
+using namespace SI_EXT;
 
-int PolarizationCharToEnum(char p)
-{
-    switch(p) {
-        case 'H':
-            return POLARIZATION_H;
-        case 'V':
-            return POLARIZATION_V;
-        case 'R':
-            return POLARIZATION_R;
-        case 'L':
-            return POLARIZATION_L;
-    }
-    return POLARIZATION_OFF;
-}
 
-char PolarizationEnumToChar(int p)
-{
-    switch(p) {
-        case POLARIZATION_H:
-            return 'H';
-        case POLARIZATION_V:
-            return 'V';
-        case POLARIZATION_R:
-            return 'R';
-        case POLARIZATION_L:
-            return 'L';
-    }
-    return ' ';
-}
-
+extern TChannels NewChannels;
+extern TChannels NewTransponders;
+extern TChannels ScannedTransponders;
 
 dvbScanner::dvbScanner(cMainMenuActuator *parent, cDvbDevice *device)
 {
-    m_entries = NULL;
-    m_parms = NULL;
     m_parent = parent;
     m_device = device;
 }
@@ -46,356 +38,596 @@ dvbScanner::~dvbScanner()
 
 void dvbScanner::StartScan(cSource *source, cTransponders *Transponders)
 {
-    dvb_file *entries=(dvb_file *)calloc(sizeof(dvb_file), 1);
-    dvb_entry *entry=NULL;
+
+    resetLists();
     cTransponder *p = Transponders->First();
+    NewTransponders.Clear();
     while (p) {
-        dvb_entry *newentry=(dvb_entry *)calloc(sizeof(dvb_entry), 1);
-        dvb_store_entry_prop(newentry, DTV_DELIVERY_SYSTEM, p->System());
-        dvb_store_entry_prop(newentry, DTV_FREQUENCY, p->Frequency()*1000);
-        dvb_store_entry_prop(newentry, DTV_SYMBOL_RATE, p->Srate()*1000);
-        dvb_store_entry_prop(newentry, DTV_MODULATION, p->Modulation());
-        dvb_store_entry_prop(newentry, DTV_POLARIZATION, PolarizationCharToEnum(p->Polarization()));
-        
-        if (!entry) {
-		entries->first_entry = newentry;
-		entry = entries->first_entry;
-	} else {
-                entry->next = newentry;
-                entry = entry->next;
-        }
+        TChannel * t = new TChannel;
+        t->DelSys = p->System();
+        t->Frequency = p->Frequency();
+        t->Symbolrate = p->Srate();
+        t->Modulation = p->Modulation();
+        t->Polarization = p->Polarization();
+        t->Source = cSource::ToString(source->Code());
+        t->FEC = p->Fec();
+        t->Rolloff = 999;
+        NewTransponders.Add(t);
         p=Transponders->Next(p);
-        
     }
     m_source = source;
-    m_entries = entries;
-    m_parms = NULL;
     m_channels = 0;
     m_newchannels = 0;
     m_progress = 0;
+    m_abort = false;
     Start();
 }
 
 
-void dvbScanner::StartScan(cSource *source, int delsys, int modulation, int freq, char pol, int sr)
+void dvbScanner::StartScan(cSource *source, int delsys, int modulation, int freq, char pol, int sr, int fec)
 {
-    struct dvb_entry *entry = (dvb_entry *)calloc(sizeof(dvb_entry),1);
-    dvb_file *entries=(dvb_file *)calloc(sizeof(dvb_file), 1);
-    
-    entries->first_entry = entry;    
-    dvb_store_entry_prop(entry, DTV_DELIVERY_SYSTEM, delsys);
-    dvb_store_entry_prop(entry, DTV_FREQUENCY, freq * 1000);
-    dvb_store_entry_prop(entry, DTV_SYMBOL_RATE, sr * 1000);
-    dvb_store_entry_prop(entry, DTV_MODULATION, modulation);
-    dvb_store_entry_prop(entry, DTV_POLARIZATION, PolarizationCharToEnum(pol));
+    resetLists();
+    NewTransponders.Clear();
+    TChannel * t = new TChannel;
+    t->DelSys = delsys;
+    t->Modulation = modulation;
+    t->Frequency = freq;
+    t->Polarization = pol;
+    t->Symbolrate = sr;
+    t->Source = cSource::ToString(source->Code());
+    t->FEC = fec;
+    t->Rolloff = 999;
+    NewTransponders.Add(t);
     m_source = source;
-    m_entries = entries;
-    m_parms = NULL;
     m_channels = 0;
     m_newchannels = 0;
     m_progress = 0;
+    m_abort = false;
     Start();
 }
 
 
 void dvbScanner::StopScan()
 {
-    if (m_parms)
-        m_parms->abort=1;
+    m_abort = true;
 }
 
-void dvb_my_log(int level, const char *fmt, ...)
-{
-	//if(level > sizeof(loglevels) / sizeof(struct loglevel) - 2) // ignore LOG_COLOROFF as well
-	//	level = LOG_INFO;
-	va_list ap;
-        char *s;
-        
-	va_start(ap, fmt);
-        if (vasprintf(&s, fmt, ap)>0) {
-            esyslog(s);
-            free(s);
-        }
-	va_end(ap);
-}
+
+TSdtData SdtData;
+TNitData NitData;
 
 void dvbScanner::Action()
 {
-    struct dvb_file *dvb_file_new = NULL;
-    struct dvb_device *dvb;
-    cDvbDevice *dev=static_cast<cDvbDevice *>(m_device);
-    uint32_t freq, pol, symbolrate, delsys, modulation;    
-    int count = 0, shift;    
+    cPatScanner* PatScanner = NULL;
+    cNitScanner* NitScanner = NULL;
+    cSdtScanner* SdtScanner = NULL;
+    TList<cPmtScanner*> PmtScanners;
+    struct TPatData PatData;
+    TList<TPmtData*> PmtData;
+    std::string s;
     
-    dvb = dvb_dev_alloc();
-    
-    if (!dvb) {
-      esyslog("******dvb_dev_alloc()");
-      return;
-    }
-    //dvb_dev_set_log(dvb,1,dvb_my_log);
-    dvb_dev_find(dvb, NULL, NULL);
-    dvb_dev_list *dvb_dev = dvb_dev_seek_by_adapter(dvb, dev->Adapter(), dev->Frontend(), DVB_DEVICE_FRONTEND);
-    if (!dvb_dev) {
-      esyslog("******dvb_dev_seek()");
-      dvb_dev_free(dvb);
-      return;
-    }
-    if (!dvb_dev_open(dvb,dvb_dev->sysname,O_RDONLY)) {
-      esyslog("******cannot open frontend");
-      dvb_dev_free(dvb);
-      return;
-    }
-    
-    
-    dvb_dev = dvb_dev_seek_by_adapter(dvb, dev->Adapter(), dev->Frontend(), DVB_DEVICE_DEMUX);
-    if (!dvb_dev) {
-		esyslog("Couldn't find demux device node\n");
-		dvb_dev_free(dvb);
-		return;
-    }    
-    struct dvb_open_descriptor *dmx_fd = dvb_dev_open(dvb, dvb_dev->sysname, O_RDWR);
-    if (!dmx_fd) {
-      esyslog("******** cannot open demux device");
-      dvb_dev_free(dvb);
-      return;
-    }
-    
-    m_parms = dvb->fe_parms;    
-    //ugly hack to get the fd of the demuxer, which is the first hidden field of dvb_open_descriptor
-    int *fdfd = (int *)dmx_fd;
-    
-    m_parms->verbose=1;
-    m_parms->abort=0;
-    struct dvb_entry *entry;   
-    for (entry = m_entries->first_entry; entry != NULL; entry = entry->next) {
+    int count = 0;
+    for (int t=0 ; t<NewTransponders.Count() ; t++) {
         
                 /* count entries to show progress*/
                 int numentries = 0;
-                for (dvb_entry * countentry = m_entries->first_entry; countentry != NULL; countentry = countentry->next)
-                    numentries ++;
                 count++;
-                
-                if (numentries>0) 
-                    m_progress = count * 100 / numentries;
+                if (NewTransponders.Count()>0) 
+                    m_progress = count * 100 / NewTransponders.Count();
                 else
                     m_progress = 100;
-                struct dvb_v5_descriptors *dvb_scan_handler = NULL;
-                uint32_t stream_id;
-		/*
-		 * If the channel file has duplicated frequencies, or some
-		 * entries without any frequency at all, discard.
-		 */
-		if (dvb_retrieve_entry_prop(entry, DTV_FREQUENCY, &freq))
+                
+                TChannel *Transponder=NewTransponders[t];
+                
+                if (!m_parent->Tune(Transponder->DelSys, Transponder->Modulation, Transponder->Frequency, Transponder->Polarization, Transponder->Symbolrate))
                     continue;
-                
-		shift = dvb_estimate_freq_shift(m_parms);
-                
-                if (dvb_retrieve_entry_prop(entry, DTV_POLARIZATION, &pol))
-			pol = POLARIZATION_OFF;
-                
-                if (dvb_retrieve_entry_prop(entry, DTV_STREAM_ID, &stream_id))
-			stream_id = NO_STREAM_ID_FILTER;
-                
-                if (!dvb_new_entry_is_needed(m_entries->first_entry, entry,
-						  freq, shift, (dvb_sat_polarization)pol, stream_id))
-                    continue;
-                
-                dvb_retrieve_entry_prop(entry, DTV_SYMBOL_RATE, &symbolrate);
-                dvb_retrieve_entry_prop(entry, DTV_DELIVERY_SYSTEM, &delsys);
-                dvb_retrieve_entry_prop(entry, DTV_MODULATION, &modulation);
-                
-                //dvb_log("Scanning frequency #%d %d", count, freq);
-                
-        
-                m_parms->current_sys=(fe_delivery_system_t)delsys;
-                dvb_fe_store_parm(m_parms, DTV_DELIVERY_SYSTEM, delsys);
-                dvb_fe_store_parm(m_parms, DTV_MODULATION, modulation);
-                dvb_fe_store_parm(m_parms, DTV_INVERSION, INVERSION_AUTO);
-                dvb_fe_store_parm(m_parms, DTV_FREQUENCY, freq);
-                dvb_fe_store_parm(m_parms, DTV_POLARIZATION, pol);
-                dvb_fe_store_parm(m_parms, DTV_SYMBOL_RATE, symbolrate); 
-                
-                if (!m_parent->Tune(delsys,modulation,freq/1000,PolarizationEnumToChar(pol),symbolrate/1000))
-                    continue;
-                
-                
-                dvb_scan_handler = dvb_get_ts_tables(dvb->fe_parms, *fdfd,
-                                                    SYS_DVBS,
-                                                    0, //other_nit,
-                                                    1); //timeout_multiply);
-                
-                m_device->SetOccupied(0);
-                
-		if (m_parms->abort) {
-			dvb_scan_free_handler_table(dvb_scan_handler);
-			break;
-		}
-		if (!dvb_scan_handler)
-			continue;
-			
-		/*
-		 * Store the service entry
-		 */
-		dvb_store_channel(&dvb_file_new, m_parms, dvb_scan_handler,
-				  1 /*args->get_detected*/, 1 /* args->get_nit*/);
-                
-                if (dvb_file_new) {
-                    AddChannels(dvb_file_new);
-                    dvb_file_free(dvb_file_new);
-                    dvb_file_new=NULL;
+                dsyslog("Starting PatScanner");
+                PatScanner = new cPatScanner(m_device, PatData);
+                while (PatScanner->Active()) {
+                    //dsyslog("PatScanner active");
+                    if (m_abort) //FIXME free patscanner 
+                        return;
+                    cCondWait::SleepMs(100);
+                }    
+                dsyslog("PatScanner end");
+                PatScanner = NULL;
+                PmtScanners.Clear();
+                PmtData.Clear();
+                for(int i = 0; i < PatData.services.Count(); i++) {
+                  TPmtData* d = new TPmtData;
+                  d->program_map_PID = PatData.services[i].program_map_PID;
+                  PmtData.Add(d);
+                  cPmtScanner* p = new cPmtScanner(m_device, PmtData[i]);
+                  PmtScanners.Add(p);
+                 }
+                // run up to 16 filters in parallel; up to 32 should be safe.
+                int activePmts = 0;
+                int finished = 0;
+                while (finished < PmtScanners.Count()) {
+                    if (m_abort)
+                        return; //FIXME free free free
+                    //dsyslog("Finished PMTs %d",finished);
+                    cCondWait::SleepMs(100);
+                    for(int i = 0; i < PmtScanners.Count(); i++) {
+                        cPmtScanner* p = (cPmtScanner*) PmtScanners[i];
+                        if (p->Finished()) {
+                          finished++;
+                          continue;
+                        }
+                        if (p->Active()) {
+                          if (++activePmts > 16)
+                          break;
+                        }
+                        else {
+                          p->Start();
+                        if (++activePmts > 16)
+                          break;
+                        }
+                     }
                 }
+                dsyslog("Pmt Finished");
 
-		/*
-		 * Add new transponders based on NIT table information
-		 */
-		dvb_add_scaned_transponders(m_parms, dvb_scan_handler,
-					    m_entries->first_entry, entry);
+                PmtScanners.Clear();
+                static int tm;
+                tm = time(0);
+                // some stupid cable providers use non-standard PID for NIT; sometimes called 'Setup-PID'.
+                /*
+                if (wSetup.DVBC_Network_PID != 0x10)
+                   PatData.network_PID = wSetup.DVBC_Network_PID; */
+                SdtData.original_network_id = 0;
+                dsyslog("Starting NitScanner/SDTScanner");
+                NitScanner = new cNitScanner(m_device, PatData.network_PID, NitData, /*FIXME dvbtype */ SCAN_SATELLITE);
+                SdtScanner = new cSdtScanner(m_device, SdtData);
+                while (NitScanner->Active() || SdtScanner->Active()) {
+                    if (m_abort)
+                        return; //FIXME free structures
+                    //if (NitScanner->Active())
+                    //    dsyslog("NitScanner still active");
+                    //if (SdtScanner->Active())
+                    //    dsyslog("SdtScanner still active");
+                    cCondWait::SleepMs(100);
 
-		/*
-		 * Free the scan handler associated with the transponder
-		 */
+                }        
 
-		dvb_scan_free_handler_table(dvb_scan_handler);
+                dsyslog("NitScanner/SDTScanner end");
+                m_device->SetOccupied(0);
+
+                
+           if (/*wSetup.verbosity > 4*/ true) {
+              for(int i = 0; i < PmtData.Count(); i++)
+                 dlog(0, "PMT %d: program_number = %d; Vpid = %d (%d); Tpid = %d Apid = %d Dpid = %d",
+                         PmtData[i]->program_map_PID,
+                         PmtData[i]->program_number,
+                         PmtData[i]->Vpid.PID,PmtData[i]->PCR_PID,
+                         PmtData[i]->Tpid,
+                         PmtData[i]->Apids.Count()?PmtData[i]->Apids[0].PID:0,
+                         PmtData[i]->Dpids.Count()?PmtData[i]->Dpids[0].PID:0);
+
+              for(int i = 0; i < SdtData.services.Count(); i++) {
+                 if (SdtData.services[i].reported)
+                    continue;
+                 SdtData.services[i].reported = true;
+                 dlog(0, "SDT: ONID = %d, TID = %d, SID = %d, FreeCA = %d, Name = '%s'",
+                      SdtData.services[i].original_network_id,
+                      SdtData.services[i].transport_stream_id,
+                      SdtData.services[i].service_id,
+                      SdtData.services[i].free_CA_mode,
+                      SdtData.services[i].Name.c_str());
+                 }
+
+              for(int i = 0; i < NitData.transport_streams.Count(); i++) {
+                 if (NitData.transport_streams[i]->reported)
+                    continue;
+                 NitData.transport_streams[i]->reported = true;
+                 NitData.transport_streams[i]->PrintTransponder(s);
+                 dlog(0, "NIT: %s'%s', NID = %d, ONID = %d, TID = %d",
+                    abs(NitData.transport_streams[i]->OrbitalPos - m_source->Position()) > 5?"WRONG SATELLITE: ":"",
+                    s.c_str(), NitData.transport_streams[i]->NID, NitData.transport_streams[i]->ONID, NitData.transport_streams[i]->TID);
+                 if (NitData.transport_streams[i]->Source == "T" and NitData.transport_streams[i]->DelSys == 1) {
+                    for(int c = 0; c < NitData.transport_streams[i]->cells.Count(); c++) {
+                       for(int cf = 0; cf < NitData.transport_streams[i]->cells[c].num_center_frequencies; cf++)
+                          dlog(0, "   center%d = %u (cell_id %u)", c+1, NitData.transport_streams[i]->cells[c].center_frequencies[cf], NitData.transport_streams[i]->cells[c].cell_id);
+                       for(int tf = 0; tf < NitData.transport_streams[i]->cells[c].num_transposers; tf++)
+                          dlog(0, "      transposer%d = %u (cell_id_extension %u)", tf+1, NitData.transport_streams[i]->cells[c].transposers[tf].transposer_frequency, NitData.transport_streams[i]->cells[c].transposers[tf].cell_id_extension);
+                       }
+                    }
+                 }
+              }
+
+           // PAT: transport_stream_id, network_pid (0x10), program_map_PIDs
+           // PMT: program_number(service_id), PCR_PID, [stream_type, elementary_PID]
+           // NIT: network_id, [transport_stream_id, original_network_id]
+           // SDT: transport_stream_id, original_network_id, [service_id, free_CA_mode]
+           
+           Transponder->TID = PatData.services[0].transport_stream_id;
+           if (SdtData.original_network_id) // update onid, if sdt found. 
+              Transponder->ONID = SdtData.original_network_id;
+
+           for(int i = 0; i < NitData.transport_streams.Count(); i++) {
+              if ((NitData.transport_streams[i]->NID == Transponder->NID or
+                  NitData.transport_streams[i]->ONID == Transponder->ONID) and
+                  NitData.transport_streams[i]->TID == Transponder->TID) {
+                 uint32_t f = Transponder->Frequency;
+                 uint32_t center_freq = NitData.transport_streams[i]->Frequency;
+
+                 Transponder->CopyTransponderData(NitData.transport_streams[i]);
+
+                 if ((center_freq < 100000000) or (center_freq > 858000000) or (abs((int)center_freq - (int)f) > 2000000))
+                    Transponder->Frequency = f;
+                 break;
+                 }
+              }
+             
+           /* THIS WILL CAUSE AN ENDLESS LOOP  
+           if (!known_transponder(Transponder, false, &NewTransponders)) {
+              TChannel* tp = new TChannel;
+              tp->CopyTransponderData(Transponder);
+              tp->NID = Transponder->NID;
+              tp->ONID = Transponder->ONID;
+              tp->TID = Transponder->TID;
+              tp->Tested = true;
+              tp->Tunable = true;
+              tp->PrintTransponder(s);
+              dlog(5, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d",
+                   s.c_str(), tp->NID, tp->ONID, tp->TID);
+              NewTransponders.Add(tp);
+              } */
+
+           for(int i = 0; i < PmtData.Count(); i++) {
+              TChannel* n = new TChannel;
+              n->CopyTransponderData(Transponder);
+              n->NID = Transponder->NID;
+              n->ONID = Transponder->ONID;
+              n->TID = Transponder->TID;
+              n->SID = PmtData[i]->program_number;
+              n->VPID.PID  = PmtData[i]->Vpid.PID;
+              n->VPID.Type = PmtData[i]->Vpid.Type;
+              n->VPID.Lang = PmtData[i]->Vpid.Lang;
+              n->PCR   = PmtData[i]->PCR_PID;
+              n->TPID  = PmtData[i]->Tpid;
+              n->APIDs = PmtData[i]->Apids;
+              n->DPIDs = PmtData[i]->Dpids;
+              n->SPIDs = PmtData[i]->Spids;
+              n->CAIDs = PmtData[i]->Caids;
+
+              if (!n->VPID.PID and !n->APIDs.Count() and !n->DPIDs.Count()) {
+                 delete n;
+                 continue;
+                 }
+
+              for(int j = 0; j < SdtData.services.Count(); j++) {
+                 if (n->TID == SdtData.services[j].transport_stream_id and
+                     n->SID == SdtData.services[j].service_id) {
+                    n->Name         = SdtData.services[j].Name;
+                    n->Shortname    = SdtData.services[j].Shortname;
+                    n->Provider     = SdtData.services[j].Provider;
+                    n->free_CA_mode = SdtData.services[j].free_CA_mode;
+                    n->service_type = SdtData.services[j].service_type;
+                    n->ONID         = SdtData.services[j].original_network_id;
+                    break;
+                    }
+                 }
+
+              if (n->service_type == Teletext_service or
+                  n->service_type == DVB_SRM_service or
+                  n->service_type == mosaic_service or
+                  n->service_type == data_broadcast_service or
+                  n->service_type == reserved_Common_Interface_Usage_EN50221 or
+                  n->service_type == RCS_Map_EN301790 or
+                  n->service_type == RCS_FLS_EN301790 or
+                  n->service_type == DVB_MHP_service or
+                  n->service_type == H264_AVC_codec_mosaic_service) {
+                 dlog(5, "skip service %d '%s' (no Audio/Video)", n->SID, n->Name.c_str());
+                 continue;
+                 }
+
+              #define PMT_ALL (SCAN_TV | SCAN_RADIO | SCAN_SCRAMBLED | SCAN_FTA)
+
+              if (/*(wSetup.scanflags & PMT_ALL) != PMT_ALL and n->service_type < 0xFFFF*/false) {
+                 if (/*(wSetup.scanflags & SCAN_SCRAMBLED) != SCAN_SCRAMBLED and n->free_CA_mode*/false) {
+                    dlog(5, "skip service %d '%s' (encrypted)", n->SID, n->Name.c_str());
+                    continue;
+                    }
+                 if (/*(wSetup.scanflags & SCAN_FTA) != SCAN_FTA and !n->free_CA_mode*/ false) {
+                    dlog(5, "skip service %d '%s' (FTA)", n->SID, n->Name.c_str());
+                    continue;
+                    }
+
+                 if (/*(wSetup.scanflags & SCAN_TV) != SCAN_TV*/ false) {
+                    if (n->service_type == digital_television_service or
+                        n->service_type == digital_television_NVOD_reference_service or
+                        n->service_type == digital_television_NVOD_timeshifted_service or
+                        n->service_type == MPEG2_HD_digital_television_service or
+                        n->service_type == H264_AVC_SD_digital_television_service or
+                        n->service_type == H264_AVC_SD_NVOD_timeshifted_service or
+                        n->service_type == H264_AVC_SD_NVOD_reference_service or
+                        n->service_type == H264_AVC_HD_digital_television_service or
+                        n->service_type == H264_AVC_HD_NVOD_timeshifted_service or
+                        n->service_type == H264_AVC_HD_NVOD_reference_service or
+                        n->service_type == H264_AVC_frame_compat_plano_stereoscopic_HD_digital_television_service or
+                        n->service_type == H264_AVC_frame_compat_plano_stereoscopic_HD_NVOD_timeshifted_service or
+                        n->service_type == H264_AVC_frame_compat_plano_stereoscopic_HD_NVOD_reference_service or
+                        n->service_type == HEVC_digital_television_service) {
+                       dlog(5, "skip service %d '%s' (tv)", n->SID, n->Name.c_str());
+                       continue;
+                       }
+                    }
+                 if (/*(wSetup.scanflags & SCAN_RADIO) != SCAN_RADIO*/ false) {
+                    if (n->service_type == digital_radio_sound_service or
+                        n->service_type == FM_radio_service or
+                        n->service_type == advanced_codec_digital_radio_sound_service) {
+                       dlog(5, "skip service %d '%s' (radio)", n->SID, n->Name.c_str());
+                       continue;
+                       }
+                    }
+                 }
+              if (/*wSetup.verbosity > 4*/ true) {
+                 n->Print(s);
+                 dlog(4, "NewChannels.Add: '%s'", s.c_str());
+                 }
+              else {
+                 if (n->Name != "???") dlog(0, "%s", n->Name.c_str());
+                 }
+              NewChannels.Add(n);
+              /* FIXME
+              if (MenuScanning)
+                 MenuScanning->SetChan(NewChannels.Count()); 
+              */
+              }
+
+           for(int i = 0; i < NewChannels.Count(); i++) {
+              if (NewChannels[i]->Name != "???")
+                 continue;
+              for(int j = 0; j < SdtData.services.Count(); j++) {
+                 if (NewChannels[i]->TID == SdtData.services[j].transport_stream_id and
+                   /*NewChannels[i]->NID == SdtData.services[j].original_network_id and*/
+                     NewChannels[i]->SID == SdtData.services[j].service_id) {
+                    NewChannels[i]->Name         = SdtData.services[j].Name;
+                    NewChannels[i]->Shortname    = SdtData.services[j].Shortname;
+                    NewChannels[i]->Provider     = SdtData.services[j].Provider;
+                    NewChannels[i]->free_CA_mode = SdtData.services[j].free_CA_mode;
+                    NewChannels[i]->Print(s);
+                    dlog(5, "Update: '%s'", s.c_str());
+                    break;
+                    }
+                 }
+              }
+
+           for(int i = 0; i < NitData.transport_streams.Count(); i++) {
+              if (abs(NitData.transport_streams[i]->OrbitalPos - m_source->Position()) > 5)
+                 continue;
+              //dlog(4,"===================before checking is_known");
+              //   for (int ii=0; ii<NewTransponders.Count(); ii++){
+              //     NewTransponders[ii]->PrintTransponder(s);
+              //     dlog(4,"  %d  --[%d]-------> %s",ii,NewTransponders[ii],s.c_str());
+              //     }
+              if (!known_transponder(NitData.transport_streams[i], true)) {
+                 TChannel* tp = new TChannel;
+                 tp->CopyTransponderData(NitData.transport_streams[i]);
+                 tp->NID = NitData.transport_streams[i]->NID;
+                 tp->ONID = NitData.transport_streams[i]->ONID;
+                 tp->TID = NitData.transport_streams[i]->TID;
+                 tp->PrintTransponder(s);
+                 dlog(4, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d",
+                      s.c_str(), tp->NID, tp->ONID, tp->TID);
+              //dlog(4,"===================before add");
+              //   for (int ii=0; ii<NewTransponders.Count(); ii++){
+              //     NewTransponders[ii]->PrintTransponder(s);
+              //     dlog(4,"  %d  --[%d]-------> %s",ii,NewTransponders[ii],s.c_str());
+              //     }
+                 NewTransponders.Add(tp);
+              //dlog(4,"===================after add");
+              //   for (int ii=0; ii<NewTransponders.Count(); ii++){
+              //     NewTransponders[ii]->PrintTransponder(s);
+              //     dlog(4,"  %d  --[%d]-------> %s",ii,NewTransponders[ii],s.c_str());
+              //     }
+                 }
+                 
+              if (NitData.transport_streams[i]->Source == "T" and NitData.transport_streams[i]->DelSys == 1) {
+                 for(int c = 0; c < NitData.transport_streams[i]->cells.Count(); c++) {
+                    for(int cf = 0; cf < NitData.transport_streams[i]->cells[c].num_center_frequencies; cf++) {
+                       TChannel* tp = new TChannel;
+                       tp->CopyTransponderData(NitData.transport_streams[i]);
+                       tp->NID = NitData.transport_streams[i]->NID;
+                       tp->TID = NitData.transport_streams[i]->TID;
+                       tp->Frequency = NitData.transport_streams[i]->cells[c].center_frequencies[cf];
+                       if (!known_transponder(tp, true)) {
+                          tp->PrintTransponder(s);
+                          dlog(4, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d", s.c_str(), tp->NID, tp->ONID, tp->TID);
+                          NewTransponders.Add(tp);
+                          }
+                       else
+                          delete tp;
+                       }
+                    for(int tf = 0; tf < NitData.transport_streams[i]->cells[c].num_transposers; tf++) {
+                       TChannel* tp = new TChannel;
+                       tp->CopyTransponderData(NitData.transport_streams[i]);
+                       tp->NID = NitData.transport_streams[i]->NID;
+                       tp->TID = NitData.transport_streams[i]->TID;
+                       tp->Frequency = NitData.transport_streams[i]->cells[c].transposers[tf].transposer_frequency;
+                       if (!known_transponder(tp, true)) {
+                          tp->PrintTransponder(s);
+                          dlog(5, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d", s.c_str(), tp->NID, tp->ONID, tp->TID);
+                          NewTransponders.Add(tp);
+                          }
+                       else
+                          delete tp;
+                       }
+                    }
+                 }
+              }
+
+           for(int i = 0; i < NitData.cell_frequency_links.Count(); i++) {
+              TChannel t;
+
+              if (/*wSetup.verbosity > 5*/ true)
+                 dlog(0, "NIT: cell_id %u, frequency %7.3fMHz network_id %d",
+                       NitData.cell_frequency_links[i].cell_id,
+                       NitData.cell_frequency_links[i].frequency/1e6,
+                       NitData.cell_frequency_links[i].network_id);
+              t.Source       = 'T';
+              t.Frequency    = NitData.cell_frequency_links[i].frequency;
+              t.Bandwidth    = t.Frequency <= 226500000 ? 7 : 8;
+              t.Inversion    = 999;
+              t.FEC          = 999;
+              t.FEC_low      = 999;
+              t.Modulation   = 999;
+              t.Transmission = 999;
+              t.Guard        = 999;
+              t.Hierarchy    = 999;
+              t.DelSys       = 0;
+
+              if (!known_transponder(&t, true)) {
+                 TChannel* n = new TChannel;
+                 n->CopyTransponderData(&t);
+                 n->PrintTransponder(s);
+                 dlog(4, "NewTransponders.Add: '%s', NID = %d, TID = %d", s.c_str(), n->NID, n->TID);
+                 NewTransponders.Add(n);
+                 }
+
+              t.DelSys = 1;
+              if (!known_transponder(&t, true)) {
+                 TChannel* n = new TChannel;
+                 n->CopyTransponderData(&t);
+                 n->PrintTransponder(s);
+                 dlog(4, "NewTransponders.Add: '%s', NID = %d, TID = %d", s.c_str(), n->NID, n->TID);
+                 NewTransponders.Add(n);
+                 }
+
+              for(int j = 0; j < NitData.cell_frequency_links[i].subcellcount; j++) {
+                 dlog(5, "NIT:    cell_id_extension %u, frequency %7.3fMHz",
+                      NitData.cell_frequency_links[i].subcells[j].cell_id_extension,
+                      NitData.cell_frequency_links[i].subcells[j].transposer_frequency/1e6);
+                 t.Frequency = NitData.cell_frequency_links[i].subcells[j].transposer_frequency;
+                 t.Bandwidth = t.Frequency <= 226500000 ? 7 : 8;
+                 t.DelSys    = 0;
+                 
+                 if (!known_transponder(&t, true)) {
+                    TChannel* tp = new TChannel;
+                    tp->CopyTransponderData(&t);
+                    tp->PrintTransponder(s);
+                    dlog(5, "NewTransponders.Add: '%s', NID = %d, TID = %d", s.c_str(), tp->NID, tp->TID);
+                    NewTransponders.Add(tp);
+                    }
+                 
+                 t.DelSys = 1;
+                 if (!known_transponder(&t, true)) {
+                    TChannel* tp = new TChannel;
+                    tp->CopyTransponderData(&t);
+                    tp->PrintTransponder(s);
+                    dlog(4, "NewTransponders.Add: '%s', NID = %d, TID = %d", s.c_str(), tp->NID, tp->TID);
+                    NewTransponders.Add(tp);
+                    }
+                 }
+              }
+              
+              AddChannels();
+              NewChannels.Clear();
+
+
+//           if ((count = AddChannels()))
+//              dlog(4, "added %d channels", count);
+//
+//           if (MenuScanning)
+//              MenuScanning->SetChan(count); 
+
+
+           // delete data from current tp
+           PatData.network_PID = 0x10;
+           PatData.services.Clear();
+           for(int i = 0; i < PmtData.Count(); i++)
+              delete PmtData[i];
+           PmtData.Clear();
+           NitData.frequency_list.Clear();
+           NitData.cell_frequency_links.Clear();
 	}
                 
-   dvb_file_free(m_entries);
-   m_entries = NULL;
-   m_parms = NULL;
-   dvb_dev_close(dmx_fd);
-   dvb_dev_free(dvb);
 }
 
-void dvbScanner::ChanFromEntry(cChannels* channels, cChannel *channel, dvb_entry *entry)
-{
-    uint32_t freq, polarization, symbolrate, delsys, modulation, inversion, fec, pilot, rolloff, streamid;
-    std::string params;    
-    char tmp[8];
-    params=""; 
-    
-    dvb_retrieve_entry_prop(entry, DTV_FREQUENCY, &freq);
-    dvb_retrieve_entry_prop(entry, DTV_SYMBOL_RATE, &symbolrate);
-    dvb_retrieve_entry_prop(entry, DTV_DELIVERY_SYSTEM, &delsys);
-    dvb_retrieve_entry_prop(entry, DTV_INVERSION, &inversion);
-    dvb_retrieve_entry_prop(entry, DTV_MODULATION, &modulation);
-    dvb_retrieve_entry_prop(entry, DTV_POLARIZATION, &polarization);
-    dvb_retrieve_entry_prop(entry, DTV_INNER_FEC, &fec);
-    if (delsys == SYS_DVBS2) {
-      dvb_retrieve_entry_prop(entry, DTV_PILOT, &pilot);
-      dvb_retrieve_entry_prop(entry, DTV_ROLLOFF, &rolloff);
-      dvb_retrieve_entry_prop(entry, DTV_STREAM_ID, &streamid);
-    }  
-    
-    
-    params+=PolarizationEnumToChar(polarization);
-    switch(fec) {
-        case FEC_NONE: params+="C0"; break;
-        case FEC_1_2: params+= "C12"; break;
-        case FEC_2_3: params+= "C23"; break;
-        case FEC_3_4: params+= "C34"; break;
-        case FEC_3_5: params+= "C35"; break;
-        case FEC_4_5: params+= "C45"; break;
-        case FEC_5_6: params+= "C56"; break;
-        case FEC_6_7: params+= "C67"; break;
-        case FEC_7_8: params+= "C78"; break;
-        case FEC_8_9: params+= "C89"; break;
-        case FEC_9_10: params+="C910"; break;
-    }
-    
-    switch(inversion) {
-      case INVERSION_OFF: params+="I0" ; break;
-      case INVERSION_ON: params+="I1" ; break;
-    }
-    
-    switch(modulation) {
-        case QAM_16: params+=   "M16";  break;
-        case QAM_32: params+=   "M32";  break;
-        case QAM_64: params+=   "M64";  break;
-        case QAM_128: params+=  "M128"; break;
-        case QAM_256: params+=  "M256"; break;
-        case QPSK: params+=     "M2";   break;
-        case PSK_8: params+=    "M5";   break;
-        case APSK_16: params+=  "M6";   break;
-        case APSK_32: params+=  "M7";   break;
-        case VSB_8: params+=    "M10";  break;
-        case VSB_16: params+=   "M11";  break;
-        case DQPSK: params+=    "M12";  break;
-    }
-    
-    if (delsys == SYS_DVBS2) {
-      switch(pilot) {
-        case PILOT_OFF: params+= "N0"; break;
-        case PILOT_ON:  params+= "N1"; break;
-      }
-      switch(rolloff) {
-        case ROLLOFF_AUTO: params+= "O0"; break;
-        case ROLLOFF_20:   params+= "O20"; break;
-        case ROLLOFF_25:   params+= "O25"; break;
-        case ROLLOFF_35:   params+= "O35"; break;
-      }
-      snprintf(tmp,8,"P%d",streamid);
-      params+=tmp;
-      params+="S1";
-    } else {
-      params+="S0";
-    }
 
-    channel->SetId(channels, entry->network_id, entry->transport_id, entry->service_id);
-    channel->SetTransponderData(m_source->Code(), freq, symbolrate/1000, params.c_str());
-    channel->SetName(entry->channel,"","");
-    //channel->SetPids(entry->video_pid_len > 0 ? entry->video_pids[0] : 0, 
-    dsyslog("ChanFromEntry %s",channel->ToText());
-}
-
-void dvbScanner::AddChannels(dvb_file *dvb_file_new)
-{   
-   //add/update found channels to vdr channels
+/* Here i cannot avoid anymore dealing with vdrs lists and
+ * channel classes. So the real complicated stuff is here..
+ */
 #include <vdr/channels.h>
-   //FIXME
-                    
-   cChannel *newCh;
-   if (dvb_file_new) {
-       cStateKey WriteState;
-       cChannels* WChannels = (cChannels*) cChannels::GetChannelsWrite(WriteState, 30000);
-       if (WChannels) {
-           int line=0;
-           for (dvb_entry *entry=dvb_file_new->first_entry; entry != NULL && WChannels != NULL ; entry = entry->next) {
-               line++;
-               if (!entry->channel) {
-                   esyslog("missing channel name, skipping entry %d",line);
-               }
-               if (entry->video_pid_len == 0 && entry->audio_pid_len == 0) {
-                   esyslog("skip entry %s, no audio or video pids", entry->channel);
-                   continue;
-               }
-               dsyslog("examining entry %d channel %s vchannel %s",line,entry->channel,entry->vchannel);
-               m_channels++;
-               newCh=NULL;
-               for(int i = 0; i < WChannels->Count(); i++) {
-                   cChannel* ch = WChannels->Get(i);
-                   if (ch->Nid() != entry->network_id ||
-                       ch->Tid() != entry->transport_id ||
-                       ch->Sid() != entry->service_id )
-                       continue;
-                   newCh=ch;
-                   break;
-               }
-               
-               if (newCh) {
-                 dsyslog("updating channel");
-                 ChanFromEntry(WChannels,newCh,entry);
-                   
-               } else {
-                 m_newchannels++;
-                 newCh = new cChannel;
-                 ChanFromEntry(WChannels,newCh,entry);
-                 //WChannels->Add(c);
-                 dsyslog("added channel");
-               }
+
+void dvbScanner::AddChannels(void) {
+  cStateKey WriteState;
+  cChannels* WChannels = (cChannels*) cChannels::GetChannelsWrite(WriteState, 30000);
+
+  if (!WChannels)
+     return;
+
+  m_channels += NewChannels.Count();
+  
+  for(int i = 0; i < WChannels->Count(); i++) {
+      
+     
+     const cChannel* ch = WChannels->Get(i);
+     TChannel* newCh = NULL;
+     int source = 0;
+
+     // is 'ch' known in NewChannels?
+     for(int idx = 0; idx < NewChannels.Count(); idx++) {
+        if (!source)
+            source = cSource::FromString(NewChannels[idx]->Source.c_str());
+
+        if (ch->Nid() != NewChannels[idx]->ONID or
+            ch->Tid() != NewChannels[idx]->TID or
+            ch->Sid() != NewChannels[idx]->SID or
+            ch->Source() != cSource::FromString(NewChannels[idx]->Source.c_str()))
+           continue;
+
+        // this channel is already known.
+        newCh = NewChannels[idx];
+        break;
+        }
+
+     //dlog(5, "%s channel '%s'", newCh?"known":"unknown", *ch->ToText());
+
+     // existing channel not found by IDs
+     /* FIXME 
+     if (wSetup.scan_remove_invalid and !newCh and ch->Source() == source) {
+        dlog(4, "remove invalid channel '%s'", *ch->ToText());
+        WChannels->Del((cChannel*) ch);
+        i--;
+        continue;
+        }
+      */
+     // update existing
+     if (/*wSetup.scan_update_existing and */newCh) {
+        std::string s;
+        newCh->Print(s);
+        if (s != *ch->ToText()) {
+           ((cChannel*) ch)->Parse(s.c_str());
+           dlog(4, "updated channel '%s'", *ch->ToText());
            }
-       WriteState.Remove();    
-       } else {
-           esyslog("Could not get Channels for writing!");
-       }
-   }
+        }
+     }
+
+  if (/*wSetup.scan_append_new*/true)
+  for(int i = 0; (i < NewChannels.Count()); i++) {
+     TChannel* n = NewChannels[i];
+     const cChannel* old = NULL;
+
+     for(old = WChannels->First(); old; old = WChannels->Next(old)) {
+        if (old->Nid() == n->ONID and
+            old->Tid() == n->TID and
+            old->Sid() == n->SID and
+            *cSource::ToString(old->Source()) == n->Source) {
+           break;
+           }
+        }
+
+     if (!old) {
+        std::string s;
+        cChannel* c = new cChannel;
+        n->Print(s);
+        c->Parse(s.c_str());
+        dlog(4, "Add channel '%s'", s.c_str());
+        WChannels->Add(c);
+        m_newchannels++;
+        }           
+     }
+  WChannels->ReNumber();
+  WriteState.Remove();
 }

@@ -125,6 +125,7 @@ private:
   int srate;
   int system;
   int modulation;
+  int fec;
   char polarization;
   
 public:
@@ -135,6 +136,7 @@ public:
   int Srate(void) const { return srate; }
   int System(void) const { return system; }
   int Modulation(void) const { return modulation; }
+  int Fec(void) const { return fec; }
   char Polarization(void) const { return polarization; }
   };
 
@@ -213,7 +215,7 @@ private:
   tColor clrProgressText;
   int oldupdate;
 public:
-  bool Tune(uint32_t delsys, uint32_t modulation,uint32_t frequency,char polarization, uint32_t symbolrate);
+  bool Tune(int delsys, int modulation, int frequency, char polarization, int symbolrate);
   cMainMenuActuator(void);
   ~cMainMenuActuator();
   void Refresh(void);

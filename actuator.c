@@ -552,12 +552,12 @@ bool cTransponder::Parse(const char *s)
   int dummy;
   int locsystem;
   int locmodulation;
-  int fec;
+  int locfec;
   char modstring[10];
   char sysstring[3];
   bool parsed=false;
   
-  if (7 == sscanf(s,"%d =%d , %c , %d , %d , %2s ; %9s", &dummy, &frequency, &polarization, &srate, &fec, sysstring, modstring)) { //DVBS2
+  if (7 == sscanf(s,"%d =%d , %c , %d , %d , %2s ; %9s", &dummy, &frequency, &polarization, &srate, &locfec, sysstring, modstring)) { //DVBS2
     if (strcasecmp(sysstring,"S2")==0) {
       locsystem=SYS_DVBS2;
       if (strcasecmp(modstring,"8PSK")==0)
@@ -574,7 +574,7 @@ bool cTransponder::Parse(const char *s)
       }
   }    
   
-  if (!parsed && 4 == sscanf(s, "%d =%d , %c ,%d ", &dummy, &frequency, &polarization, &srate)) { //DVBS
+  if (!parsed && 5 == sscanf(s, "%d =%d , %c , %d, %d", &dummy, &frequency, &polarization, &srate, &locfec)) { //DVBS
     locsystem=SYS_DVBS;
     locmodulation=QPSK;
     parsed=true;
@@ -585,6 +585,7 @@ bool cTransponder::Parse(const char *s)
     } else {
     system=locsystem;
     modulation=locmodulation;
+    fec=locfec;
     if (polarization=='v') polarization='V';
     if (polarization=='h') polarization='H';
     if (polarization=='l') polarization='L';
@@ -681,7 +682,7 @@ cMainMenuActuator::cMainMenuActuator(void)
   if (Pol=='l') Pol='L';
   if (Pol=='r') Pol='R';
   menuvalue[MI_SYMBOLRATE]=OldChannel->Srate();
-  menuvalue[MI_SYSTEM]=dtp.System() == DVB_SYSTEM_1 ? SYS_DVBS : SYS_DVBS2;
+  menuvalue[MI_SYSTEM]=dtp.System();
   menuvalue[MI_MODULATION]=dtp.Modulation();
   menuvalue[MI_VPID]=OldChannel->Vpid();
   menuvalue[MI_APID]=OldChannel->Apid(0);
@@ -867,7 +868,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if (curtransponder) {
                         menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
                         menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
-                        menuvalue[MI_SYSTEM]=curtransponder->System();
+                        menuvalue[MI_SYSTEM]=curtransponder->System() == SYS_DVBS2 ? DVB_SYSTEM_2 : DVB_SYSTEM_1;
                         menuvalue[MI_MODULATION]=curtransponder->Modulation();
                         Pol=curtransponder->Polarization();
                       }
@@ -918,7 +919,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                       if (curtransponder) {
                         menuvalue[MI_FREQUENCY]=curtransponder->Frequency();
                         menuvalue[MI_SYMBOLRATE]=curtransponder->Srate();
-                        menuvalue[MI_SYSTEM]=curtransponder->System();
+                        menuvalue[MI_SYSTEM]=curtransponder->System() == SYS_DVBS2 ? DVB_SYSTEM_2 : DVB_SYSTEM_1;
                         menuvalue[MI_MODULATION]=curtransponder->Modulation();
                         Pol=curtransponder->Polarization();
                       }
@@ -1046,10 +1047,10 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    Tune(); 
                    break;
                 case MI_SYSTEM:
-                  if (menuvalue[MI_SYSTEM]==SYS_DVBS)
-                     menuvalue[MI_SYSTEM]=SYS_DVBS2;
+                  if (menuvalue[MI_SYSTEM]==DVB_SYSTEM_1)
+                     menuvalue[MI_SYSTEM]=DVB_SYSTEM_2;
                   else
-                     menuvalue[MI_SYSTEM]=SYS_DVBS;
+                     menuvalue[MI_SYSTEM]=DVB_SYSTEM_2;
                   break;    
                 case MI_MODULATION:
                   switch (menuvalue[MI_MODULATION]) {
@@ -1077,7 +1078,7 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
                    if (conf==0) conf=1;
                    else {
                      scanmode=SM_TRANSPONDER;
-                     Scanner->StartScan(curSource, menuvalue[MI_SYSTEM],menuvalue[MI_MODULATION], menuvalue[MI_FREQUENCY], Pol, menuvalue[MI_SYMBOLRATE]);
+                     Scanner->StartScan(curSource, menuvalue[MI_SYSTEM],menuvalue[MI_MODULATION], menuvalue[MI_FREQUENCY], Pol, menuvalue[MI_SYMBOLRATE], 999 /*FIXME*/);
                      conf=0;
                    }
                    break;
@@ -1217,7 +1218,7 @@ void cMainMenuActuator::DisplayOsd(void)
          tColor text, background;
          bool showScanResult = (scanmode != SM_NONE);
          if (ScanOnly) {
-           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->Channels(), Scanner->NewChannels());
+           if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->ChannelsCount(), Scanner->NewChannelsCount());
            else buf[0]=0;
            background=clrHeaderBg;
            text=clrHeaderText;
@@ -1242,7 +1243,7 @@ void cMainMenuActuator::DisplayOsd(void)
                text=clrHeaderTextError;
                break;
             default:
-               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->Channels(), Scanner->NewChannels());
+               if (showScanResult) snprintf(buf,sizeof(buf),tr(channelsfound), Scanner->ChannelsCount(), Scanner->NewChannelsCount());
                else snprintf(buf,sizeof(buf),tr(dishmoving),status.target, status.position);
                background=clrHeaderBg;
                text=clrHeaderText;
@@ -1346,7 +1347,7 @@ void cMainMenuActuator::DisplayOsd(void)
                snprintf(buf, sizeof(buf),"%s %d", tr(menucaption[itemindex]), menuvalue[itemindex]);
                break;  
              case MI_SYSTEM:
-               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), menuvalue[itemindex] == SYS_DVBS ? "DVB-S" : ( menuvalue[itemindex] == SYS_DVBS2 ? "DVB-S2" : "???"));
+               snprintf(buf, sizeof(buf),"%s %s", tr(menucaption[itemindex]), menuvalue[itemindex] == DVB_SYSTEM_1 ? "DVB-S" : "DVB-S2");
                break;
              case MI_MODULATION:
                snprintf(buf, sizeof(buf),"%s %s ", tr(menucaption[itemindex]), MapToUserString(menuvalue[itemindex], ModulationValues));
@@ -1451,7 +1452,7 @@ void cMainMenuActuator::GetSignalInfo(void)
       CHECK(ioctl(fd_frontend, FE_READ_UNCORRECTED_BLOCKS, &fe_unc));
 }
 
-bool cMainMenuActuator::Tune(uint32_t delsys, uint32_t modulation, uint32_t frequency, char polarization, uint32_t symbolrate)
+bool cMainMenuActuator::Tune(int delsys, int modulation, int frequency, char polarization, int symbolrate)
 {
     menuvalue[MI_SYSTEM]=delsys;
     menuvalue[MI_MODULATION]=modulation;
