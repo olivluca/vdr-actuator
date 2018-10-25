@@ -121,6 +121,7 @@ static const int menudigits[] = {
 #define atlimits      trNOOP("Dish at limits")
 #define outsidelimits trNOOP("Position outside limits")
 #define scanning      trNOOP("Scanning, press any key to stop")
+#define scandone      trNOOP("Scan done, press any key to continue")
 
 //Positioning tolerance
 //(for transponder scanning and restore of Setup.UpdateChannels)
@@ -816,12 +817,13 @@ eOSState cMainMenuActuator::ProcessKey(eKeys Key)
   //Scanning
   //-------------------------------------------
   if(scanmode!=SM_NONE) {
-      if (Key!=kNone)
-          Scanner->StopScan();
-      if (!Scanner->Running())
-          scanmode=SM_NONE;
-      Refresh();
-      return state;
+      if (Key!=kNone) {
+        if (Scanner->Running())
+            Scanner->StopScan();
+        scanmode=SM_NONE;
+        Refresh();
+        return state;
+      }
   }
   
   //-------------------------------------------
@@ -1414,7 +1416,10 @@ void cMainMenuActuator::DisplayOsd(void)
               if(scanmode!=SM_NONE) {
                 int barwidth=Setup.OSDWidth*Scanner->Progress()/100;
                 osd->DrawRectangle(left,y,barwidth,y+rowheight-1,clrProgressBar);
-                osd->DrawText(left,y,tr(scanning),clrProgressText,clrTransparent,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
+                if (Scanner->Running())
+                  osd->DrawText(left,y,tr(scanning),clrProgressText,clrTransparent,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
+                else
+                  osd->DrawText(left,y,tr(scandone),clrProgressText,clrTransparent,textfont,Setup.OSDWidth-left-1,rowheight,taCenter);
               }
           }  
         }
