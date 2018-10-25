@@ -121,13 +121,12 @@ void dvbScanner::Action()
     int count = 0;
     for (int t=0 ; t<NewTransponders.Count() ; t++) {
         
-                /* count entries to show progress*/
-                int numentries = 0;
+                /* count scanned transponders to show progress*/
                 count++;
                 if (NewTransponders.Count()>0) 
                     m_progress = count * 100 / NewTransponders.Count();
                 else
-                    m_progress = 100;
+                    m_progress = 0;
                 
                 TChannel *Transponder=NewTransponders[t];
                 
@@ -255,6 +254,7 @@ void dvbScanner::Action()
            if (SdtData.original_network_id) // update onid, if sdt found. 
               Transponder->ONID = SdtData.original_network_id;
 
+           /* THIS CAUSES AN ENDLESS LOOP ON HOTBIRD
            for(int i = 0; i < NitData.transport_streams.Count(); i++) {
               if ((NitData.transport_streams[i]->NID == Transponder->NID or
                   NitData.transport_streams[i]->ONID == Transponder->ONID) and
@@ -268,9 +268,8 @@ void dvbScanner::Action()
                     Transponder->Frequency = f;
                  break;
                  }
-              }
+              } */
              
-           /* THIS WILL CAUSE AN ENDLESS LOOP  
            if (!known_transponder(Transponder, false, &NewTransponders)) {
               TChannel* tp = new TChannel;
               tp->CopyTransponderData(Transponder);
@@ -283,7 +282,7 @@ void dvbScanner::Action()
               dlog(5, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d",
                    s.c_str(), tp->NID, tp->ONID, tp->TID);
               NewTransponders.Add(tp);
-              } */
+              }
 
            for(int i = 0; i < PmtData.Count(); i++) {
               TChannel* n = new TChannel;
