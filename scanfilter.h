@@ -37,25 +37,6 @@ bool known_transponder(TChannel* newChannel, bool auto_allowed, TChannels* = NUL
 bool is_nearly_same_frequency(const TChannel* chan_a, const TChannel* chan_b, uint delta = 2001);
 bool is_different_transponder_deep_scan(const TChannel* a, const TChannel* b, bool auto_allowed);
 
-/*******************************************************************************
- * TThread
- ******************************************************************************/
-class TThread {
-private:
-  bool running;
-  pthread_t thread;
-  static void* start_routine(TThread* Thread);
-protected:
-  virtual void Action(void) = 0;
-public:
-  TThread();
-  virtual ~ TThread();
-  bool Start(void);
-  bool Running(void) { return running; }
-  void Cancel(int WaitSeconds = 0);
-};
-
-
 
 struct service {
   uint16_t transport_stream_id;
@@ -132,7 +113,7 @@ struct TSdtData {
 /*******************************************************************************
  * cPatScanner
  ******************************************************************************/
-class cPatScanner : public TThread {
+class cPatScanner : public cThread {
 private:
   cDevice* device;
   struct TPatData& PatData;
@@ -155,7 +136,7 @@ public:
 /*******************************************************************************
  * cPmtScanner
  ******************************************************************************/
-class cPmtScanner : public TThread {
+class cPmtScanner : public cThread {
 private:
   cDevice* device;
   TPmtData* data;
@@ -176,7 +157,7 @@ public:
 /*******************************************************************************
  * cNitScanner
  ******************************************************************************/
-class cNitScanner : public TThread {
+class cNitScanner : public cThread {
 private:
   bool active;
   cDevice* device;
@@ -202,7 +183,7 @@ public:
 /*******************************************************************************
  * cSdtScanner
  ******************************************************************************/
-class cSdtScanner : public TThread {
+class cSdtScanner : public cThread {
 private:
   bool active;
   cDevice* device;

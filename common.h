@@ -45,7 +45,7 @@
 #define MAXSIGNALSTRENGTH       65535
 #define MINSIGNALSTRENGTH       16383
 
-#define FREENULL(p) do { free(p); p=NULL; } while(0)
+#define FREENULL(p) do { if(p) { free(p); p=NULL;} } while(0)
 
 #define dlog(level, fmt...) do { \
    _log(__PRETTY_FUNCTION__,__LINE__, level, true, fmt); \

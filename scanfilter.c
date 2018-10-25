@@ -179,46 +179,6 @@ bool is_different_transponder_deep_scan(const TChannel* a, const TChannel* b, bo
 
 
 /*******************************************************************************
- * TThread
- ******************************************************************************/
-TThread::TThread() : running(false) {}
-
-TThread:: ~TThread() {}
-
-bool TThread::Start() {
-  running = true;
-  if (pthread_create(&thread, NULL, (void* (*)(void*)) &start_routine, (void*) this) == 0) {
-     // When a detached thread terminates, its resources are *automatically*
-     // released back to the system without the need for another thread to
-     // join with the terminated thread.
-     pthread_detach(thread);
-     }
-  else {
-     running = false;
-     return false;
-     }
-  return true;
-}
-
-void* TThread::start_routine(TThread* Thread) {
-  int i;
-
-  //ENABLING THE CANCEL FUNCTIONALITY
-  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &i);
-  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &i);
-
-  Thread->Action();
-  Thread->running = false;
-  return NULL;
-}
-
-void TThread::Cancel(int WaitSeconds) {
-  if (!running) return;
-  running = false;
-}
-
-
-/*******************************************************************************
  * cPatScanner
  ******************************************************************************/
 

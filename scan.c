@@ -119,7 +119,7 @@ void dvbScanner::Action()
     std::string s;
     
     int count = 0;
-    for (int t=0 ; t<NewTransponders.Count() ; t++) {
+    for (int t=0 ; t<NewTransponders.Count() && !m_abort; t++) {
         
                 /* count scanned transponders to show progress*/
                 count++;
@@ -136,12 +136,14 @@ void dvbScanner::Action()
                 PatScanner = new cPatScanner(m_device, PatData);
                 while (PatScanner->Active()) {
                     //dsyslog("PatScanner active");
-                    if (m_abort) //FIXME free patscanner 
+                    if (m_abort) {
+                        FREENULL(PatScanner); 
                         return;
+                    }
                     cCondWait::SleepMs(100);
                 }    
                 dsyslog("PatScanner end");
-                PatScanner = NULL;
+                FREENULL(PatScanner);
                 PmtScanners.Clear();
                 PmtData.Clear();
                 for(int i = 0; i < PatData.services.Count(); i++) {
@@ -156,7 +158,7 @@ void dvbScanner::Action()
                 int finished = 0;
                 while (finished < PmtScanners.Count()) {
                     if (m_abort)
-                        return; //FIXME free free free
+                        return; 
                     //dsyslog("Finished PMTs %d",finished);
                     cCondWait::SleepMs(100);
                     for(int i = 0; i < PmtScanners.Count(); i++) {
@@ -179,8 +181,6 @@ void dvbScanner::Action()
                 dsyslog("Pmt Finished");
 
                 PmtScanners.Clear();
-                static int tm;
-                tm = time(0);
                 // some stupid cable providers use non-standard PID for NIT; sometimes called 'Setup-PID'.
                 /*
                 if (wSetup.DVBC_Network_PID != 0x10)
@@ -190,15 +190,20 @@ void dvbScanner::Action()
                 NitScanner = new cNitScanner(m_device, PatData.network_PID, NitData, /*FIXME dvbtype */ SCAN_SATELLITE);
                 SdtScanner = new cSdtScanner(m_device, SdtData);
                 while (NitScanner->Active() || SdtScanner->Active()) {
-                    if (m_abort)
-                        return; //FIXME free structures
+                    if (m_abort) {
+                        FREENULL(NitScanner);
+                        FREENULL(SdtScanner);
+                        return;
+                    }
                     //if (NitScanner->Active())
                     //    dsyslog("NitScanner still active");
                     //if (SdtScanner->Active())
                     //    dsyslog("SdtScanner still active");
                     cCondWait::SleepMs(100);
 
-                }        
+                }    
+                FREENULL(NitScanner);
+                FREENULL(SdtScanner);
 
                 dsyslog("NitScanner/SDTScanner end");
                 m_device->SetOccupied(0);
