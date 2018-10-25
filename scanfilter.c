@@ -22,48 +22,17 @@
 ///#include <vdr/config.h>
 #include "scanfilter.h"
 #include "common.h"
-#include "dvb_wrapper.h"
 //#include "menusetup.h"
 #include "si_ext.h"
 
 using namespace SI_EXT;
 
-extern TSdtData SdtData;
-extern TNitData NitData;
-TChannels NewChannels;
-TChannels NewTransponders;
-TChannels ScannedTransponders;
 
 int nextTransponders;
 
-void resetLists() { 
-  NewChannels.Clear();
-  NewTransponders.Clear();
-  ScannedTransponders.Clear();
-  SdtData.services.Clear();
-  NitData.frequency_list.Clear();
-  NitData.cell_frequency_links.Clear();
-  NitData.service_types.Clear();
-  for(int i = 0; i < NitData.transport_streams.Count(); i++)
-     delete NitData.transport_streams[i];
-  NitData.transport_streams.Clear();
-  nextTransponders = 0;
-
-  NewChannels.Capacity(2500);
-  NewTransponders.Capacity(500);
-  ScannedTransponders.Capacity(500);
-}
 
 bool known_transponder(TChannel* newChannel, bool auto_allowed, TChannels* list) {
   //dlog(4, "%s", __FUNCTION__);
-  if (list == NULL) {
-     return (known_transponder(newChannel, auto_allowed, &NewTransponders)); /* ||
-             known_transponder(newChannel, auto_allowed, &ScannedTransponders));*/
-     }
-
-
-  //if ( list == &NewTransponders ) dlog(0,"=================== check against NewTransponders");
-  //if ( list == &ScannedTransponders ) dlog(0,"=================== check against ScannedTransponders");
   for(int idx = 0; idx < list->Count(); ++idx) {
      TChannel* channel = list->Items(idx);
 
@@ -1200,32 +1169,6 @@ void cNitScanner::Process(const u_char* Data, int Length) {
 // bool TTransponders::IsUniqueTransponder(const TChannel* NewTransponder) {
 //   return (GetByParams(NewTransponder) == NULL);
 // }
-
-
-TChannel* GetByTransponder(const TChannel* Transponder) {
-  int maxdelta = 500; // kHz. DVB-C 113MHz vs. 114MHz etc.
-  char source = Transponder->Source[0];
-  if (source == 'S')
-     maxdelta = 2;    // MHz. LNB drift
-  else if (source == 'T')
-     maxdelta = 250;  // kHz -> France (UK: no longer)
-
-  if (NewChannels.Count()) {
-     for(int idx = 0; idx < NewChannels.Count(); ++idx) {
-        TChannel* ch = NewChannels[idx];
-        if (is_nearly_same_frequency(ch, Transponder, maxdelta) &&
-            ch->Source == Transponder->Source &&
-            ch->TID == Transponder->TID &&
-            ch->SID == Transponder->SID) {
-           //dlog(4, "   GetByTransponder: known channel %s", *PrintChannel(Transponder));
-           return (ch);
-           }
-        }
-     }
-  return (NULL);
-}
-
-
 
 
 /*******************************************************************************

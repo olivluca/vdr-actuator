@@ -12,8 +12,18 @@
 #include <linux/types.h>
 #include <sys/ioctl.h>
 #include <vdr/diseqc.h>
-#include "dvb_wrapper.h"
 #include "tlist.h"
+
+//defines originally in extended_frontend.h
+#define   SCAN_TERRESTRIAL      0 /* DVB-T/T2                */
+#define   SCAN_CABLE            1 /* DVB-C                   */
+#define   SCAN_SATELLITE        2 /* DVB-S/S2                */
+#define   SCAN_RESERVE1         3 /* was: pvrinput           */
+#define   SCAN_RESERVE2         4 /* was: pvrinput(fm radio) */
+#define   SCAN_TERRCABLE_ATSC   5 /* ATSC VSB and/or QAM     */
+#define   SCAN_NO_DEVICE        6
+#define   SCAN_TRANSPONDER      999
+//end of defines in extended_frontend.h
 
 #define SCAN_TV        ( 1 << 0 )
 #define SCAN_RADIO     ( 1 << 1 )

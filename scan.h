@@ -12,6 +12,8 @@
 
 #include <vdr/tools.h>
 #include "actuator.h"
+#include "common.h"
+#include "scanfilter.h"
 
 class cDevice;
 class TChannel;
@@ -25,9 +27,12 @@ private:
    int m_newchannels;
    cSource *m_source;
    bool m_abort;
-   //void ChanFromEntry(cChannels* channels, cChannel *channel, dvb_entry *entry);
-   //void AddChannels(dvb_v5_descriptors *dvb_scan_handler);
+   TChannels NewChannels;
+   TChannels NewTransponders;
+   TSdtData SdtData;
+   TNitData NitData;
    void AddChannels(void);
+   void ResetLists(void);
 public:
    dvbScanner(cMainMenuActuator *parent, cDvbDevice *device);
    virtual ~dvbScanner();

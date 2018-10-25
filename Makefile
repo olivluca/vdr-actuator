@@ -53,7 +53,7 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"'
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o scan.o common.o scanfilter.o dvb_wrapper.o 
+OBJS = $(PLUGIN).o scan.o common.o scanfilter.o
 
 ### The main target:
 

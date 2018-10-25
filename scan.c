@@ -14,7 +14,6 @@
 #include "scan.h"
 #include "scanfilter.h"
 #include "common.h"
-#include "dvb_wrapper.h"
 //#include "menusetup.h"
 #include "actuator.h"
 #include "scan.h"
@@ -22,9 +21,6 @@
 using namespace SI_EXT;
 
 
-extern TChannels NewChannels;
-extern TChannels NewTransponders;
-extern TChannels ScannedTransponders;
 
 dvbScanner::dvbScanner(cMainMenuActuator *parent, cDvbDevice *device)
 {
@@ -36,10 +32,26 @@ dvbScanner::~dvbScanner()
 {
 }
 
+void dvbScanner::ResetLists()
+{
+  NewChannels.Clear();
+  NewTransponders.Clear();
+  SdtData.services.Clear();
+  NitData.frequency_list.Clear();
+  NitData.cell_frequency_links.Clear();
+  NitData.service_types.Clear();
+  for(int i = 0; i < NitData.transport_streams.Count(); i++)
+     delete NitData.transport_streams[i];
+  NitData.transport_streams.Clear();
+
+  NewChannels.Capacity(2500);
+  NewTransponders.Capacity(500);
+}
+
 void dvbScanner::StartScan(cSource *source, cTransponders *Transponders)
 {
 
-    resetLists();
+    ResetLists();
     cTransponder *p = Transponders->First();
     NewTransponders.Clear();
     while (p) {
@@ -66,7 +78,7 @@ void dvbScanner::StartScan(cSource *source, cTransponders *Transponders)
 
 void dvbScanner::StartScan(cSource *source, int delsys, int modulation, int freq, char pol, int sr, int fec)
 {
-    resetLists();
+    ResetLists();
     NewTransponders.Clear();
     TChannel * t = new TChannel;
     t->DelSys = delsys;
@@ -401,7 +413,7 @@ void dvbScanner::Action()
               //     NewTransponders[ii]->PrintTransponder(s);
               //     dlog(4,"  %d  --[%d]-------> %s",ii,NewTransponders[ii],s.c_str());
               //     }
-              if (!known_transponder(NitData.transport_streams[i], true)) {
+              if (!known_transponder(NitData.transport_streams[i], true, &NewTransponders)) {
                  TChannel* tp = new TChannel;
                  tp->CopyTransponderData(NitData.transport_streams[i]);
                  tp->NID = NitData.transport_streams[i]->NID;
@@ -431,7 +443,7 @@ void dvbScanner::Action()
                        tp->NID = NitData.transport_streams[i]->NID;
                        tp->TID = NitData.transport_streams[i]->TID;
                        tp->Frequency = NitData.transport_streams[i]->cells[c].center_frequencies[cf];
-                       if (!known_transponder(tp, true)) {
+                       if (!known_transponder(tp, true, &NewTransponders)) {
                           tp->PrintTransponder(s);
                           dlog(4, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d", s.c_str(), tp->NID, tp->ONID, tp->TID);
                           NewTransponders.Add(tp);
@@ -445,7 +457,7 @@ void dvbScanner::Action()
                        tp->NID = NitData.transport_streams[i]->NID;
                        tp->TID = NitData.transport_streams[i]->TID;
                        tp->Frequency = NitData.transport_streams[i]->cells[c].transposers[tf].transposer_frequency;
-                       if (!known_transponder(tp, true)) {
+                       if (!known_transponder(tp, true, &NewTransponders)) {
                           tp->PrintTransponder(s);
                           dlog(5, "NewTransponders.Add: '%s', NID = %d, ONID = %d, TID = %d", s.c_str(), tp->NID, tp->ONID, tp->TID);
                           NewTransponders.Add(tp);
@@ -477,7 +489,7 @@ void dvbScanner::Action()
               t.Hierarchy    = 999;
               t.DelSys       = 0;
 
-              if (!known_transponder(&t, true)) {
+              if (!known_transponder(&t, true, &NewTransponders)) {
                  TChannel* n = new TChannel;
                  n->CopyTransponderData(&t);
                  n->PrintTransponder(s);
@@ -486,7 +498,7 @@ void dvbScanner::Action()
                  }
 
               t.DelSys = 1;
-              if (!known_transponder(&t, true)) {
+              if (!known_transponder(&t, true, &NewTransponders)) {
                  TChannel* n = new TChannel;
                  n->CopyTransponderData(&t);
                  n->PrintTransponder(s);
@@ -502,7 +514,7 @@ void dvbScanner::Action()
                  t.Bandwidth = t.Frequency <= 226500000 ? 7 : 8;
                  t.DelSys    = 0;
                  
-                 if (!known_transponder(&t, true)) {
+                 if (!known_transponder(&t, true, &NewTransponders)) {
                     TChannel* tp = new TChannel;
                     tp->CopyTransponderData(&t);
                     tp->PrintTransponder(s);
@@ -511,7 +523,7 @@ void dvbScanner::Action()
                     }
                  
                  t.DelSys = 1;
-                 if (!known_transponder(&t, true)) {
+                 if (!known_transponder(&t, true, &NewTransponders)) {
                     TChannel* tp = new TChannel;
                     tp->CopyTransponderData(&t);
                     tp->PrintTransponder(s);

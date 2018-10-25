@@ -30,18 +30,12 @@ public:
    TChannel* NextTransponder(void);
 };
 
-//extern cTransponders NewTransponders;
-//extern cTransponders ScannedTransponders;
-//extern TChannels NewChannels;
-extern int nextTransponders;
 
 //--------------------------------------------------------------------------------------------
 
 bool known_transponder(TChannel* newChannel, bool auto_allowed, TChannels* = NULL);
 bool is_nearly_same_frequency(const TChannel* chan_a, const TChannel* chan_b, uint delta = 2001);
 bool is_different_transponder_deep_scan(const TChannel* a, const TChannel* b, bool auto_allowed);
-TChannel* GetByTransponder(const TChannel* Transponder);
-void resetLists();
 
 /*******************************************************************************
  * TThread
